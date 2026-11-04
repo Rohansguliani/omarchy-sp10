@@ -52,5 +52,6 @@ end
 
 -- Alt+Tab window switcher (plugin io.github.pablo-merino.altswitch): hold Alt,
 -- tap Tab to step through every window (most recent first), release to switch.
--- Replaces Omarchy's blind Alt+Tab cycling.
-dofile(os.getenv("HOME") .. "/.config/omarchy/plugins/io.github.pablo-merino.altswitch/altswitch.lua")
+-- Replaces Omarchy's blind Alt+Tab cycling. pcall keeps the rest of this file
+-- working if the plugin isn't installed yet (fresh machine mid-install).
+pcall(dofile, os.getenv("HOME") .. "/.config/omarchy/plugins/io.github.pablo-merino.altswitch/altswitch.lua")

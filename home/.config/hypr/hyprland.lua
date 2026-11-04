@@ -46,7 +46,11 @@ o.window("helium", { ["hyprbars:no_bar"] = true })
 --   28-55 px:  Helium's maximize button -> toggle maximize
 --   55-80 px:  Helium's minimize button -> minimize to the dock
 --   82-165 px: new-tab, extensions and menu buttons -> press and drag moves the
---              window (a click without moving still reaches Helium)
+--              window (a click without moving still reaches Helium). Skipped
+--              while maximized: Hyprland un-maximizes a window as soon as a
+--              drag starts, even if the mouse never moves, so every click on
+--              those buttons would restore the window. Restore first (double-
+--              click, the button or Ctrl+Shift+A), or Super+drag.
 -- and a double-click anywhere between the address bar and those buttons (tabs
 -- and the empty space after them) toggles maximize, like a title bar. Helium's
 -- own double-click maximize fails for the same reason as its button. The
@@ -59,29 +63,21 @@ o.window("helium", { ["hyprbars:no_bar"] = true })
 local HELIUM_ROW = 30
 local HELIUM_DOUBLE_CLICK_MS = 400
 local helium_dragging = false
-local helium_drag_from_max = false
 local helium_last_press = nil
 o.bind("mouse:272", "Helium tab-row maximize and drag", function()
   if helium_dragging then
     helium_dragging = false
-    -- Dragging a maximized window restores its size around the old offset,
-    -- which can leave the tab row above or beside the screen; once the drag
-    -- has landed, bring the window back fully onto its monitor.
+    -- A drag can leave the tab row above the screen; once it has landed, bring
+    -- the top edge back onto the monitor.
     hl.timer(function()
       local dragged = hl.get_active_window()
       local monitor = dragged and dragged.monitor
-      if not dragged or dragged.class ~= "helium" or not monitor or not monitor.width then
+      if not dragged or dragged.class ~= "helium" or not monitor then
         return
       end
-      local left, top = monitor.x or 0, monitor.y or 0
-      local right = left + math.floor(monitor.width / monitor.scale)
-      local x = dragged.at.x
-      if helium_drag_from_max then
-        x = math.max(left, math.min(x, right - dragged.size.x))
-      end
-      local y = math.max(top, dragged.at.y)
-      if x ~= dragged.at.x or y ~= dragged.at.y then
-        hl.dispatch(hl.dsp.window.move({ x = x, y = y, relative = false }))
+      local y = math.max(monitor.y or 0, dragged.at.y)
+      if y ~= dragged.at.y then
+        hl.dispatch(hl.dsp.window.move({ x = dragged.at.x, y = y, relative = false }))
       end
     end, { type = "oneshot", timeout = 50 })
     return
@@ -104,9 +100,10 @@ o.bind("mouse:272", "Helium tab-row maximize and drag", function()
   elseif from_right >= 55 and from_right < 80 then
     hl.exec_cmd("omarchy-hyprland-window-minimize " .. window.address)
   elseif from_right >= 82 and from_right < 165 then
-    helium_dragging = true
-    helium_drag_from_max = (window.fullscreen or 0) ~= 0
-    hl.dispatch(hl.dsp.window.drag())
+    if (window.fullscreen or 0) == 0 then
+      helium_dragging = true
+      hl.dispatch(hl.dsp.window.drag())
+    end
   elseif from_right >= 165 and cursor.x - window.at.x >= math.max(400, window.size.x * 0.4) then
     local last = helium_last_press
     if last and last.address == window.address
