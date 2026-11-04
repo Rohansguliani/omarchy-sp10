@@ -1,0 +1,12 @@
+[Unit]
+Description=Reload Surface button driver for reliable wake
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/modprobe -r soc_button_array
+ExecStart=/usr/bin/modprobe soc_button_array
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

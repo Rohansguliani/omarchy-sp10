@@ -1,0 +1,10 @@
+[Unit]
+Description=Surface Pro 10: raise firmware PL4 (45 W) to PL2 (64 W) so the iGPU is not clock-clamped (linux-surface#2331)
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 64000000 > /sys/class/powercap/intel-rapl:0/constraint_2_power_limit_uw'
+
+[Install]
+WantedBy=multi-user.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

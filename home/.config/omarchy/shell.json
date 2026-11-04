@@ -1,0 +1,53 @@
+{
+  "bar": {
+    "centerAnchor": "",
+    "id": "rohansguliani.bar",
+    "layout": {
+      "center": [],
+      "left": [
+        {
+          "id": "marcho78.taskbar",
+          "windowPreviews": false
+        }
+      ],
+      "right": [
+        {
+          "format": "M/d h:mm AP",
+          "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
+          "verticalFormat": "HH\n—\nmm"
+        }
+      ],
+      "centerBegin": [],
+      "centerEnd": [],
+      "tray": []
+    },
+    "position": "bottom",
+    "transparent": false
+  },
+  "idle": {
+    "lock": 300,
+    "screensaver": 2147483
+  },
+  "plugins": [
+    {
+      "id": "local.helium-desktop"
+    },
+    {
+      "id": "rohansguliani.seams"
+    },
+    {
+      "id": "io.github.maajix.spotlight"
+    },
+    {
+      "id": "mirador"
+    },
+    {
+      "id": "io.github.pablo-merino.altswitch"
+    }
+  ],
+  "version": 1,
+  "disabledPlugins": [
+    "omarchy.dock"
+  ]
+}

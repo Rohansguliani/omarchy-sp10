@@ -1,0 +1,27 @@
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index e3e3e53..4332c4d 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -566,6 +566,22 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("imx258", CameraSensorHelperImx258)
+ 
++class CameraSensorHelperImx681 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperImx681()
++	{
++		/* Black level: 64 in 10-bit >> 2 = 16 in 8-bit (IPA divides by 256) */
++		blackLevel_ = 16;
++		/* Analog gain register 0x0204 is inverted: hw code 0=16x, 960=1x.
++		 * Driver inverts: logical 0=1x (hw 960), logical 960=16x (hw 0).
++		 * Correct Sony formula with inversion: gain = 1024/(1024-logical_code)
++		 * Monotonically increasing: logical 0=1x, logical 960=16x. */
++		gain_ = AnalogueGainLinear{ 0, 1024, -1, 1024 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("imx681", CameraSensorHelperImx681)
++
+ class CameraSensorHelperImx283 : public CameraSensorHelper
+ {
+ public:

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "rohansguliani.seams",
+  "name": "Tile Seams",
+  "version": "1.0.0",
+  "author": "rohansguliani",
+  "description": "Single drag handle on shared tile edges for gapless mouse resizing",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "Seams.qml"
+  }
+}

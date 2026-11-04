@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+
+action=${1:-}
+internal=$(omarchy-hyprland-monitor-laptop)
+[[ -n $internal && $internal =~ ^[A-Za-z0-9._-]+$ ]] || exit 0
+
+case "$action" in
+  close)
+    omarchy-system-lid-close
+
+    on_ac=false
+    for supply in /sys/class/power_supply/*/online; do
+      if [[ -r $supply ]] && [[ $(< "$supply") == 1 ]]; then
+        on_ac=true
+        break
+      fi
+    done
+
+    if $on_ac; then
+      hyprctl dispatch "hl.dsp.dpms({ action = \"disable\", monitor = \"$internal\" })"
+    fi
+    ;;
+  open)
+    omarchy-hyprland-monitor-clamshell
+    hyprctl dispatch "hl.dsp.dpms({ action = \"enable\", monitor = \"$internal\" })"
+    ;;
+  *)
+    echo "Usage: ${0##*/} {close|open}" >&2
+    exit 2
+    ;;
+esac

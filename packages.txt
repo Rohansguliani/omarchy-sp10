@@ -1,0 +1,39 @@
+# Packages added on top of a stock Omarchy install. One per line.
+# Installed with `yay -S --needed`, so repo and AUR names both work.
+# Camera packages (linux-surface-sp10, libcamera*) are handled by camera/.
+
+# Hardware video decode (Omarchy's installer misses Meteor Lake-P)
+intel-media-driver
+libvpl
+vpl-gpu-rt
+libva-utils
+
+# Surface hardware
+intel-ucode
+cpupower
+efibootmgr
+usbutils
+v4l2loopback-dkms
+linux
+
+# Camera apps
+pipewire-libcamera
+snapshot
+
+# Apps and tools
+helium-browser-bin
+1password
+1password-cli
+ghostty
+github-cli
+neovim
+npm
+zed
+omazed
+owe-lockfeed
+hyprshot-git
+libqalculate
+xmlstarlet
+qt5-wayland
+noto-fonts-extra
+ttf-cascadia-mono-nerd

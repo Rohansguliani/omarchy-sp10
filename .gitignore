@@ -1,0 +1,9 @@
+camera/dist/
+camera/kernel/src/
+camera/kernel/pkg/
+camera/kernel/archlinux-linux/
+camera/kernel/*.pkg.tar*
+camera/libcamera/src/
+camera/libcamera/pkg/
+camera/libcamera/libcamera/
+camera/libcamera/*.pkg.tar*

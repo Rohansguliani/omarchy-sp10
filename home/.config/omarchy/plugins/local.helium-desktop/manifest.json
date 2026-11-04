@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "local.helium-desktop",
+  "name": "Helium Desktop Shortcut",
+  "version": "1.0.0",
+  "author": "Local",
+  "description": "Shows a Helium Browser shortcut on the desktop",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "DesktopShortcut.qml"
+  }
+}

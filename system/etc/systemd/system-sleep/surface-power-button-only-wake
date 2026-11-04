@@ -1,0 +1,12 @@
+#!/bin/bash
+# s2idle is vulnerable to spurious device wakes on this Surface. Keep only the
+# physical power-button GPIO armed while sleeping.
+[[ $1 == pre ]] || exit 0
+for wakeup in /sys/class/wakeup/wakeup*/device/power/wakeup; do
+  [[ -e $wakeup ]] || continue
+  device=$(readlink -f "${wakeup%/power/wakeup}")
+  case "$device" in
+    */MSHW0040:00/gpio-keys.12.auto) [[ -w $wakeup ]] && printf enabled > "$wakeup" ;;
+    *) [[ -w $wakeup ]] && printf disabled > "$wakeup" ;;
+  esac
+done

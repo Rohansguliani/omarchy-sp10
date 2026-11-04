@@ -1,0 +1,7 @@
+# Surface Pro 10: keep the locally patched libcamera (IMX681 front camera).
+# omarchy-refresh-pacman overwrites /etc/pacman.conf and then runs
+# `pacman -Syyuu`, which would downgrade 0.7.2-5 (local) to the repo build.
+# Rebuilt packages live in ~/libcamera-sp10/.
+if ! grep -q '^IgnorePkg.*libcamera' /etc/pacman.conf; then
+  sudo sed -i '/^\[options\]/a IgnorePkg = libcamera libcamera-ipa libcamera-tools gst-plugin-libcamera' /etc/pacman.conf
+fi

@@ -1,0 +1,70 @@
+diff --git a/Taskbar.qml b/Taskbar.qml
+index ced0b4a..d8bd146 100644
+--- a/Taskbar.qml
++++ b/Taskbar.qml
+@@ -125,13 +125,38 @@ BarWidget {
+     return String((win.wayland && win.wayland.appId) || ipc.class || ipc.initialClass || "")
+   }
+ 
+-  function iconFor(win) {
++  // Local patch: the upstream lookup used only the window class, which fails
++  // when an app's icon name differs from it (Helium: class "helium", icon
++  // "helium-browser"), and Qt's themed lookup misses some hicolor-only icons.
++  // Bar widgets don't get Omarchy's appLibrary (only menu plugins do), so
++  // build a candidate list; the Image below steps to the next one on error.
++  function iconCandidates(win) {
+     var cls = root.classOf(win).trim()
+-    if (cls && Quickshell && typeof Quickshell.iconPath === "function") {
+-      var p = Quickshell.iconPath(cls, true)
+-      if (p && p.length > 0) return p
++    var entry = cls ? DesktopEntries.heuristicLookup(cls) : null
++    var names = []
++    if (entry && entry.icon) names.push(String(entry.icon))
++    if (cls && names.indexOf(cls) < 0) names.push(cls)
++    var out = []
++    for (var i = 0; i < names.length; i++) {
++      var name = names[i]
++      if (name.charAt(0) === "/") { out.push("file://" + name); continue }
++      if (!/^[A-Za-z0-9._+-]+$/.test(name)) continue
++      var themed = Quickshell.iconPath(name, true)
++      if (themed && themed.length > 0) out.push(themed)
++      out.push("file:///usr/share/icons/hicolor/scalable/apps/" + name + ".svg")
++      var sizes = ["256x256", "128x128", "64x64", "48x48"]
++      for (var s = 0; s < sizes.length; s++) out.push("file:///usr/share/icons/hicolor/" + sizes[s] + "/apps/" + name + ".png")
++      out.push("file:///usr/share/pixmaps/" + name + ".png")
+     }
+-    return Quickshell.iconPath ? Quickshell.iconPath("application-x-executable", true) : ""
++    var fallback = Quickshell.iconPath("application-x-executable", true)
++    if (fallback) out.push(fallback)
++    return out
++  }
++
++  // Used by the dropdown panel (TaskbarPanel.qml), which has no retry.
++  function iconFor(win) {
++    var list = root.iconCandidates(win)
++    return list.length > 0 ? list[0] : ""
+   }
+ 
+   function labelFor(win) {
+@@ -251,7 +276,7 @@ BarWidget {
+   implicitWidth: !visible ? 0 : (root.dropdown ? trigger.implicitWidth : rowLayout.implicitWidth)
+   implicitHeight: barSize
+ 
+-  Behavior on implicitWidth { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
++  // Local patch: no width animation, so the taskbar appears at full size.
+ 
+   // ---- dropdown trigger (style: "dropdown") ----
+   Rectangle {
+@@ -357,7 +382,11 @@ BarWidget {
+             anchors.verticalCenter: parent.verticalCenter
+             width: Math.round(chip.Layout.preferredHeight * 0.62)
+             height: width
+-            source: root.iconFor(chip.win)
++            readonly property var candidates: root.iconCandidates(chip.win)
++            property int attempt: 0
++            onCandidatesChanged: attempt = 0
++            source: attempt < candidates.length ? candidates[attempt] : ""
++            onStatusChanged: if (status === Image.Error && attempt < candidates.length - 1) attempt++
+             sourceSize.width: width
+             sourceSize.height: height
+             asynchronous: true
