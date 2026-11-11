@@ -1,0 +1,6 @@
+[Unit]
+Description=Remove Omarchy's browser color policy for Helium
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rm -f -- /etc/chromium/policies/managed/color.json

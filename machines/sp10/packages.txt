@@ -1,0 +1,15 @@
+# Surface Pro 10 for Business (Intel Core Ultra, Meteor Lake-P).
+
+# Hardware video decode: Omarchy's installer misses Meteor Lake-P because the
+# GPU name ("Meteor Lake-P [Intel Graphics]") has no xe/iris/arc in it.
+intel-media-driver
+libvpl
+vpl-gpu-rt
+libva-utils
+
+intel-ucode
+cpupower
+efibootmgr
+usbutils
+# Stock kernel, kept as a bootable fallback next to the camera kernel.
+linux

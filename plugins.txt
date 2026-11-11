@@ -1,8 +1,6 @@
-# Third-party Omarchy shell plugins, pinned.
+# Third-party Omarchy shell plugins every machine gets, pinned.
 # <plugin-id> <git-url> <commit>
 # A local patch in patches/<plugin-id>.patch is applied after checkout.
-# Your own plugins (rohansguliani.*, local.*) live in home/.config/omarchy/plugins/.
-io.github.maajix.spotlight https://github.com/maajix/omarchy-spotlight.git c421a257b440af40d4344db0f7b150e3ccabaea8
-io.github.pablo-merino.altswitch https://github.com/Pablo-Merino/omarchy-altswitch.git 8f54d684c89d66ecf51e6e5a9c5c574758de79be
+# A plugin one utility needs goes in that utility's own plugins.txt instead.
+# Your own plugins (rohansguliani.*, local.*) live in a part's home/.config/omarchy/plugins/.
 marcho78.taskbar https://github.com/marcho78/omarchy-taskbar.git a0d255b6434561c9aae1e91c219d8ae4178393e8
-mirador https://github.com/sanjyay/Mirador.git cd0d86f304beda7696cd4e5c685206d54c940796

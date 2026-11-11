@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""MX Master 2S buttons, natively: no Solaar, no Logitech software.
+
+  Gesture button (under the thumb)  -> Mission Control
+  Thumb wheel                       -> previous/next desktop
+
+The gesture button sends nothing to Linux by default. This talks HID++ 2.0 to
+the Unifying receiver (hidraw) to "divert" that one button, so the mouse
+reports its presses to us instead, and re-diverts whenever the mouse
+reconnects (it forgets on sleep or power-off).
+
+The thumb wheel is a plain horizontal wheel, read from the mouse's own evdev
+node. One desktop per notch, at most one per STEP_GAP seconds. Apps still get
+its sideways scroll, because the device is not grabbed.
+
+Access: /etc/udev/rules.d/70-mx-master.rules gives the logged-in user the
+receiver's hidraw node and the mouse's event node, nothing else.
+Every action is printed, so `journalctl --user -u mx-master` shows them.
+"""
+import os
+import select
+import subprocess
+import sys
+import time
+
+import evdev
+from evdev import ecodes
+
+MOUSE_NAME = "Logitech MX Master 2S"
+RECEIVER_HID_ID = "0003:0000046D:0000C52B"  # Unifying receiver
+GESTURE_CID = 0x00C3
+REPROG_V4 = 0x1B04
+SWID = 0x0A
+STEP_GAP = 0.12
+FORWARD_IS_NEXT = False  # thumb wheel rolled toward the back -> next desktop (as felt on the 2S)
+
+
+def log(*args):
+    print(*args, flush=True)
+
+
+def hypr(lua):
+    env = dict(os.environ)
+    run = f"/run/user/{os.getuid()}/hypr"
+    try:
+        sigs = sorted(os.listdir(run), key=lambda s: os.path.getmtime(os.path.join(run, s)))
+        env["HYPRLAND_INSTANCE_SIGNATURE"] = sigs[-1]
+    except (OSError, IndexError):
+        pass
+    subprocess.run(["hyprctl", "eval", lua], env=env,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+class Receiver:
+    """HID++ 2.0 over the Unifying receiver's hidraw node."""
+
+    def __init__(self, path):
+        self.fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+        self.dev = None        # receiver slot of the mouse (1-6)
+        self.reprog = None     # feature index of REPROG_CONTROLS_V4
+        self.pressed = False
+        self.pending_setup = True
+
+    def close(self):
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
+
+    def send(self, dev, feat, fn, params=b""):
+        msg = bytes([0x11, dev, feat, (fn << 4) | SWID]) + params
+        os.write(self.fd, msg.ljust(20, b"\0"))
+
+    def request(self, dev, feat, fn, params=b"", timeout=1.0):
+        """Send a request; return its reply params, or None on error/timeout.
+        Notifications that arrive meanwhile are handled, not lost."""
+        self.send(dev, feat, fn, params)
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            r, _, _ = select.select([self.fd], [], [], max(0, end - time.monotonic()))
+            if not r:
+                break
+            data = os.read(self.fd, 64)
+            if len(data) < 4 or data[1] != dev:
+                self.handle(data)
+                continue
+            if data[2] == 0xFF or (data[0] == 0x10 and data[2] == 0x8F):
+                return None  # HID++ error reply
+            if data[2] == feat and data[3] == (fn << 4) | SWID:
+                return data[4:]
+            self.handle(data)
+        return None
+
+    def setup(self):
+        """Find the mouse's slot and divert the gesture button."""
+        for dev in range(1, 7):
+            reply = self.request(dev, 0x00, 0, bytes([REPROG_V4 >> 8, REPROG_V4 & 0xFF]), 0.5)
+            if reply and reply[0]:
+                self.dev, self.reprog = dev, reply[0]
+                break
+        else:
+            return False
+        ok = self.request(self.dev, self.reprog, 3,
+                          bytes([GESTURE_CID >> 8, GESTURE_CID & 0xFF, 0x03])) is not None
+        log(f"gesture button {'diverted' if ok else 'divert FAILED'} (slot {self.dev}, feature {self.reprog})")
+        return ok
+
+    def handle(self, data):
+        if len(data) < 4:
+            return
+        # Receiver: device (re)connected -> it forgot the diversion.
+        if data[0] == 0x10 and data[2] == 0x41 and not (data[4] & 0x40 if len(data) > 4 else 0):
+            log("mouse connected")
+            self.pending_setup = True
+            return
+        # Diverted-buttons event: params are the CIDs held right now.
+        if self.dev and data[1] == self.dev and data[2] == self.reprog and data[3] & 0xF0 == 0 and data[3] & 0x0F == 0:
+            p = data[4:12]
+            cids = {(p[i] << 8) | p[i + 1] for i in range(0, 8, 2)} - {0}
+            now = GESTURE_CID in cids
+            if now and not self.pressed:
+                log("gesture button -> Mission Control")
+                hypr('windowtools.overview("overviewToggle")')
+            self.pressed = now
+
+
+def find_receiver():
+    """The Unifying receiver's hidraw node, which carries HID++."""
+    for h in sorted(os.listdir("/sys/class/hidraw")):
+        try:
+            with open(f"/sys/class/hidraw/{h}/device/uevent") as f:
+                uevent = f.read()
+        except OSError:
+            continue
+        path = f"/dev/{h}"
+        if f"HID_ID={RECEIVER_HID_ID}" in uevent and os.access(path, os.R_OK | os.W_OK):
+            return path
+    return None
+
+
+def find_mouse():
+    for path in evdev.list_devices():
+        try:
+            d = evdev.InputDevice(path)
+        except OSError:
+            continue
+        if d.name == MOUSE_NAME and ecodes.REL_HWHEEL in d.capabilities().get(ecodes.EV_REL, []):
+            return d
+        d.close()
+    return None
+
+
+def main():
+    rx = mouse = None
+    last_step = 0.0
+    while True:
+        if rx is None:
+            path = find_receiver()
+            if path:
+                try:
+                    rx = Receiver(path)
+                    log(f"receiver {path}")
+                except OSError as e:
+                    log(f"receiver {path}: {e}")
+        if mouse is None:
+            mouse = find_mouse()
+            if mouse:
+                log(f"thumb wheel {mouse.path}")
+        if rx and rx.pending_setup:
+            try:
+                rx.pending_setup = not rx.setup()
+            except OSError:
+                rx.close()
+                rx = None
+        fds = [f for f in (rx and rx.fd, mouse and mouse.fd) if f]
+        if not fds:
+            time.sleep(2)
+            continue
+        r, _, _ = select.select(fds, [], [], 5 if rx and rx.pending_setup else None)
+        try:
+            if rx and rx.fd in r:
+                rx.handle(os.read(rx.fd, 64))
+        except OSError:
+            log("receiver gone")
+            rx.close()
+            rx = None
+        try:
+            if mouse and mouse.fd in r:
+                for ev in mouse.read():
+                    if ev.type == ecodes.EV_REL and ev.code == ecodes.REL_HWHEEL and ev.value:
+                        now = time.monotonic()
+                        if now - last_step >= STEP_GAP:
+                            last_step = now
+                            delta = 1 if (ev.value > 0) == FORWARD_IS_NEXT else -1
+                            log(f"thumb wheel -> desktop {'+' if delta > 0 else '-'}1")
+                            hypr(f"windowtools.step_desktop({delta})")
+        except (OSError, BlockingIOError) as e:
+            if not isinstance(e, BlockingIOError):
+                log("mouse gone")
+                mouse.close()
+                mouse = None
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "rohansguliani.sound",
+  "name": "Sound",
+  "version": "1.0.0",
+  "author": "rohansguliani",
+  "license": "MIT",
+  "description": "macOS-style Sound menu: volume, output device, app volumes on demand, Sound Settings.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Sound.qml"
+  },
+  "barWidget": {
+    "displayName": "Sound",
+    "description": "Volume, output device and app volumes",
+    "category": "Audio",
+    "allowMultiple": false
+  }
+}

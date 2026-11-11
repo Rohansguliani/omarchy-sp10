@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bluetooth
+GenericName=Bluetooth Settings
+Comment=Pair, connect and manage Bluetooth devices
+Keywords=bluetooth;pair;headphones;airpods;mouse;keyboard;wireless;
+Icon=bluetooth
+Exec=omarchy-bluetooth-window
+Terminal=false
+Categories=Settings;HardwareSettings;

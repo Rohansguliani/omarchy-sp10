@@ -1,0 +1,2 @@
+# <plugin-id> <git-url> <commit>; local edits in ../../patches/<plugin-id>.patch
+io.github.maajix.spotlight https://github.com/maajix/omarchy-spotlight.git c421a257b440af40d4344db0f7b150e3ccabaea8

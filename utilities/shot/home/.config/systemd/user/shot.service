@@ -1,0 +1,18 @@
+[Unit]
+Description=shot: Alt+1 area screenshot, Alt+2 OCR, Alt+` editor
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/shotd
+# GDK_SCALE is an XWayland setting (2 for the laptop); shotd is Wayland-only
+# and uses the monitor's real fractional scale.
+UnsetEnvironment=GDK_SCALE
+# wl-copy stays behind to serve the clipboard; a restart must not take the
+# current screenshot with it.
+KillMode=process
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

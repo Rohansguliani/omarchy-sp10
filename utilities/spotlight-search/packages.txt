@@ -1,0 +1,2 @@
+# Spotlight's file search runs fd.
+fd

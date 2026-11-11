@@ -1,0 +1,15 @@
+#!/bin/sh
+# shot copy|ocr|edit [monitor]: ask shotd (shot.service) for a capture.
+# Bound in ~/.config/hypr/utilities/shot.lua.
+fifo="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/shot.fifo"
+send() {
+  [ -p "$fifo" ] && timeout 1 sh -c 'printf "%s\n" "$1" > "$2"' _ "$*" "$fifo"
+}
+send "$@" && exit 0
+# Not running (or not yet): start it and try once more.
+systemctl --user start shot.service
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -p "$fifo" ] && break
+  sleep 0.2
+done
+send "$@"

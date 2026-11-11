@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "rohansguliani.windows",
+  "name": "Window tools",
+  "version": "1.0.0",
+  "author": "rohansguliani",
+  "license": "MIT",
+  "description": "Alt+Tab with live thumbnails and a macOS-style Mission Control, sharing one thumbnail component. Hyprland halves live in hypr/.",
+  "kinds": [
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Windows.qml"
+  }
+}

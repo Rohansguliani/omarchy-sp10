@@ -1,0 +1,4 @@
+# For ~/.local/bin/mx-master: the logged-in user may use the Logitech Unifying
+# receiver's HID++ channel and read the MX Master 2S event node. Nothing else.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c52b", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Logitech MX Master 2S", TAG+="uaccess"

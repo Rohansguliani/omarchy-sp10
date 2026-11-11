@@ -1,0 +1,7 @@
+[Unit]
+Description=Pause Surface Smart Charging so the battery charges to 100%
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/surface-smart-charging

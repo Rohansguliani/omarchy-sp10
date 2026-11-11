@@ -1,0 +1,702 @@
+#!/usr/bin/env python3
+"""shotd: area screenshots, OCR and a quick annotate-and-copy editor for Hyprland.
+A port of rohanMacUtils' `shot` (macos27/shot).
+
+  Alt+1   drag an area -> PNG on the clipboard
+  Alt+2   drag an area -> the text in it (tesseract OCR) on the clipboard
+  Alt+`   the last Alt+1 / Alt+2 capture in the editor: arrow, box, pen, text,
+          pixelate; Ctrl+C copies the annotated image, Ctrl+S saves it, Esc
+          closes. Nothing captured yet -> a selection that opens the editor.
+
+Resident, so a hotkey costs one `grim` and one window: the screen under the
+cursor is grabbed first and that frozen frame is what the selection overlay
+shows and what gets cropped, so a playing video or a blinking caret can't end
+up half-changed in the shot, and the dimming never does.
+
+Commands arrive one per line on $XDG_RUNTIME_DIR/shot.fifo ("copy DP-8", "ocr",
+"edit eDP-1"), written by ~/.local/bin/shot from the Hyprland bindings in
+~/.config/hypr/utilities/shot.lua. Runs as the user service shot.service.
+"""
+
+import io
+import math
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+
+# gtk4-layer-shell has to be loaded before libwayland-client.
+LAYER_SHELL = "/usr/lib/libgtk4-layer-shell.so"
+if LAYER_SHELL not in os.environ.get("LD_PRELOAD", ""):
+    os.environ["LD_PRELOAD"] = (LAYER_SHELL + " " + os.environ.get("LD_PRELOAD", "")).strip()
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+import cairo  # noqa: E402
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("Gsk", "4.0")
+gi.require_version("Graphene", "1.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+gi.require_foreign("cairo")
+from gi.repository import Gdk, GLib, Graphene, Gsk, Gtk  # noqa: E402
+from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
+
+APP_ID = "dev.rohan.shot"
+FIFO = os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"), "shot.fifo")
+SAVE_DIR = ""             # also write Alt+1 shots here, e.g. "~/Pictures"; "" = clipboard only
+OCR_LANG = "eng"
+COLOR = (1.0, 0x3B / 255, 0x30 / 255)  # #ff3b30
+STROKE = 4.0
+DIM = 0.3
+MIN_SEL = 2               # a selection smaller than this (points) cancels
+TOOLBAR_H = 38            # editor toolbar height, for placing the editor over the shot
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def rect(x, y, w, h):
+    return Graphene.Rect().init(x, y, w, h)
+
+
+def draw_pixels(widget, s, texture, filt):
+    """Draw texture at its own pixel size, one texel per screen pixel.
+
+    A texture node sized in logical units (2560x1440 on the 1.5x 4K) is
+    resampled by GTK through that logical size and back up, which drops and
+    smears 1-px detail (measured: 1-px stripes came out as a 6-px blur).
+    Placing it in device pixels keeps it exact."""
+    scale = widget.get_native().get_surface().get_scale()
+    s.save()
+    s.scale(1 / scale, 1 / scale)
+    s.append_scaled_texture(texture, filt, rect(0, 0, texture.get_width(), texture.get_height()))
+    s.restore()
+
+
+def rgba(r, g, b, a=1.0):
+    c = Gdk.RGBA()
+    c.red, c.green, c.blue, c.alpha = r, g, b, a
+    return c
+
+
+def monitor_named(name):
+    monitors = Gdk.Display.get_default().get_monitors()
+    first = None
+    for i in range(monitors.get_n_items()):
+        m = monitors.get_item(i)
+        first = first or m
+        if m.get_connector() == name:
+            return m
+    return first
+
+
+def wl_copy(data, mime=None):
+    cmd = ["wl-copy"] + (["--type", mime] if mime else [])
+    subprocess.run(cmd, input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+
+
+def pictures_dir():
+    return GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES) or os.path.expanduser("~/Pictures")
+
+
+def unique_png(directory):
+    os.makedirs(directory, exist_ok=True)
+    stamp = time.strftime("shot-%Y-%m-%d_%H-%M-%S")
+    path, n = os.path.join(directory, stamp + ".png"), 2
+    while os.path.exists(path):
+        path, n = os.path.join(directory, f"{stamp}-{n}.png"), n + 1
+    return path
+
+
+# --- Frames and captures --------------------------------------------------------------
+
+class Frame:
+    """One monitor, frozen: raw RGB pixels plus a texture of them."""
+
+    def __init__(self, monitor, width, height, pixels):
+        self.monitor = monitor
+        self.geom = monitor.get_geometry()  # layout (logical) coordinates
+        self.w, self.h = width, height     # pixels
+        self.pixels = pixels
+        self.texture = Gdk.MemoryTexture.new(width, height, Gdk.MemoryFormat.R8G8B8, GLib.Bytes.new(pixels), width * 3)
+
+    @property
+    def scale(self):
+        return self.w / self.geom.width
+
+    @classmethod
+    def grab(cls, monitor):
+        out = subprocess.run(["grim", "-o", monitor.get_connector(), "-t", "ppm", "-"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
+        m = re.match(rb"P6\s+(\d+)\s+(\d+)\s+255\s", out.stdout[:64])
+        if out.returncode or not m:
+            return None
+        return cls(monitor, int(m.group(1)), int(m.group(2)), out.stdout[m.end():])
+
+    def crop(self, x, y, w, h):
+        """Logical rect -> Capture, cut from the frozen pixels."""
+        s = self.scale
+        x0, y0 = max(0, round(x * s)), max(0, round(y * s))
+        x1, y1 = min(self.w, round((x + w) * s)), min(self.h, round((y + h) * s))
+        stride, row = self.w * 3, (x1 - x0) * 3
+        start = x0 * 3
+        pixels = b"".join(self.pixels[r * stride + start:r * stride + start + row] for r in range(y0, y1))
+        texture = Gdk.MemoryTexture.new(x1 - x0, y1 - y0, Gdk.MemoryFormat.R8G8B8, GLib.Bytes.new(pixels), row)
+        return Capture(texture, s, self.monitor, self.geom.x + x0 / s, self.geom.y + y0 / s)
+
+
+class Capture:
+    """A cropped shot: its texture, PNG, and where it was (layout coordinates)."""
+
+    def __init__(self, texture, scale, monitor, gx, gy):
+        self.texture, self.scale, self.monitor = texture, scale, monitor
+        self.gx, self.gy = gx, gy
+        self.pw, self.ph = texture.get_width(), texture.get_height()
+        self.lw, self.lh = self.pw / scale, self.ph / scale  # logical size
+        self.png = texture.save_to_png_bytes().get_data()
+        self._surface = None
+
+    @property
+    def surface(self):
+        if self._surface is None:
+            self._surface = cairo.ImageSurface.create_from_png(io.BytesIO(self.png))
+        return self._surface
+
+
+# --- Selection overlay -----------------------------------------------------------------
+
+class SelectView(Gtk.Widget):
+    def __init__(self, frame):
+        super().__init__()
+        self.frame = frame
+        self.sel = None  # (x, y, w, h) logical
+        self.painted = None
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+        self.set_cursor_from_name("crosshair")
+
+    def do_snapshot(self, s):
+        W, H = self.get_width(), self.get_height()
+        draw_pixels(self, s, self.frame.texture, Gsk.ScalingFilter.NEAREST)
+        # Before a drag the frozen screen is shown untouched, so it looks exactly
+        # like the live one (the crosshair cursor says the tool is armed). Once
+        # dragging, only what's outside the selection is dimmed.
+        if self.sel:
+            dim = rgba(0, 0, 0, DIM)
+            x, y, w, h = self.sel
+            for r in ((0, 0, W, y), (0, y + h, W, H - y - h), (0, y, x, h), (x + w, y, W - x - w, h)):
+                if r[2] > 0 and r[3] > 0:
+                    s.append_color(dim, rect(*r))
+            edge = rgba(1, 1, 1, 0.95)
+            for r in ((x, y, w, 1), (x, y + h - 1, w, 1), (x, y, 1, h), (x + w - 1, y, 1, h)):
+                s.append_color(edge, rect(*r))
+        if self.painted:
+            self.painted()
+            self.painted = None
+
+
+class Overlay(Gtk.Window):
+    """Covers one monitor with its frozen frame until a drag finishes or is cancelled."""
+
+    def __init__(self, app, frame, on_done, t0):
+        super().__init__(application=app)
+        self.frame, self.on_done, self.done = frame, on_done, False
+        LayerShell.init_for_window(self)
+        LayerShell.set_namespace(self, "shot")
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+        for edge in (LayerShell.Edge.TOP, LayerShell.Edge.BOTTOM, LayerShell.Edge.LEFT, LayerShell.Edge.RIGHT):
+            LayerShell.set_anchor(self, edge, True)
+        LayerShell.set_exclusive_zone(self, -1)
+        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.EXCLUSIVE)
+        LayerShell.set_monitor(self, frame.monitor)
+        self.set_decorated(False)
+        self.view = SelectView(frame)
+        self.view.painted = lambda: log(f"overlay painted {(time.perf_counter() - t0) * 1e3:.0f} ms after the hotkey")
+        self.set_child(self.view)
+
+        drag = Gtk.GestureDrag(button=1)
+        drag.connect("drag-update", self._update)
+        drag.connect("drag-end", self._end)
+        self.view.add_controller(drag)
+        right = Gtk.GestureClick(button=3)
+        right.connect("pressed", lambda *_: self.finish(None))
+        self.view.add_controller(right)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self._key)
+        self.add_controller(keys)
+
+    def _selection(self, gesture, dx, dy):
+        ok, sx, sy = gesture.get_start_point()
+        W, H = self.view.get_width(), self.view.get_height()
+        ax, bx = sorted((sx, sx + dx))
+        ay, by = sorted((sy, sy + dy))
+        x0, y0 = max(0, math.floor(ax)), max(0, math.floor(ay))
+        x1, y1 = min(W, math.ceil(bx)), min(H, math.ceil(by))
+        return (x0, y0, x1 - x0, y1 - y0)
+
+    def _update(self, gesture, dx, dy):
+        self.view.sel = self._selection(gesture, dx, dy)
+        self.view.queue_draw()
+
+    def _end(self, gesture, dx, dy):
+        sel = self._selection(gesture, dx, dy)
+        self.finish(sel if sel[2] >= MIN_SEL and sel[3] >= MIN_SEL else None)
+
+    def _key(self, controller, keyval, keycode, state):
+        if keyval == Gdk.KEY_Escape:
+            self.finish(None)
+        return True  # no typing reaches anything while selecting
+
+    def finish(self, sel):
+        if self.done:
+            return
+        self.done = True
+        self.destroy()
+        # Off screen first, then the crop and PNG encode.
+        GLib.timeout_add(16, lambda: self.on_done(self.frame, sel) and False)
+
+
+# --- Editor ----------------------------------------------------------------------------
+
+TOOLS = [("arrow", "\u2197", "Arrow", "a"), ("rect", "\u25ad", "Box", "r"), ("pen", "\u270e", "Pen", "p"),
+         ("text", "T", "Text", "t"), ("pixelate", "\u25a6", "Pixelate", "b")]
+
+
+def draw_item(cr, item):
+    kind = item["kind"]
+    if kind == "pixelate":
+        if item.get("small") is None:  # still being dragged: dashed outline
+            x, y, w, h = item["rect"]
+            cr.save()
+            cr.set_source_rgb(*COLOR)
+            cr.set_line_width(1.0)
+            cr.set_dash([4, 3])
+            cr.rectangle(x, y, w, h)
+            cr.stroke()
+            cr.restore()
+            return
+        x, y, w, h = item["rect"]
+        small = item["small"]
+        cr.save()
+        cr.rectangle(x, y, w, h)
+        cr.clip()
+        cr.translate(x, y)
+        cr.scale(w / small.get_width(), h / small.get_height())
+        cr.set_source_surface(small, 0, 0)
+        cr.get_source().set_filter(cairo.FILTER_NEAREST)
+        cr.paint()
+        cr.restore()
+        return
+    cr.save()
+    cr.set_source_rgb(*COLOR)
+    cr.set_line_width(STROKE)
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    if kind == "text":
+        size = max(16.0, STROKE * 5)
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(size)
+        x, y = item["at"]
+        cr.move_to(x, y + size * 0.35)
+        cr.show_text(item["text"] + ("|" if item.get("editing") else ""))
+    elif kind == "pen":
+        pts = item["points"]
+        cr.move_to(*pts[0])
+        for p in pts[1:]:
+            cr.line_to(*p)
+        cr.stroke()
+    else:
+        (ax, ay), (bx, by) = item["a"], item["b"]
+        if kind == "rect":
+            x, y, w, h, r = min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay), 3.0
+            cr.new_sub_path()
+            cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+            cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+            cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+            cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+            cr.close_path()
+        else:  # arrow
+            cr.move_to(ax, ay)
+            cr.line_to(bx, by)
+            ang, length = math.atan2(by - ay, bx - ax), max(10.0, STROKE * 3.5)
+            for d in (ang + math.radians(150), ang - math.radians(150)):
+                cr.move_to(bx, by)
+                cr.line_to(bx + length * math.cos(d), by + length * math.sin(d))
+        cr.stroke()
+    cr.restore()
+
+
+class EditView(Gtk.Widget):
+    def __init__(self, editor):
+        super().__init__()
+        self.editor = editor
+        cap = editor.cap
+        # Whole layout pixels, rounded up; the shot itself is drawn at its exact
+        # size, so at 1:1 every captured pixel lands on one screen pixel.
+        self.set_size_request(math.ceil(cap.lw * editor.zoom), math.ceil(cap.lh * editor.zoom))
+        self.set_halign(Gtk.Align.START)
+        self.set_valign(Gtk.Align.START)
+        self.set_cursor_from_name("crosshair")
+
+    def do_snapshot(self, s):
+        ed = self.editor
+        W, H = ed.cap.lw * ed.zoom, ed.cap.lh * ed.zoom
+        if ed.zoom == 1:
+            draw_pixels(self, s, ed.cap.texture, Gsk.ScalingFilter.NEAREST)
+        else:
+            s.append_scaled_texture(ed.cap.texture, Gsk.ScalingFilter.TRILINEAR, rect(0, 0, W, H))
+        if not ed.items and ed.live is None:
+            return
+        cr = s.append_cairo(rect(0, 0, W, H))
+        cr.scale(ed.zoom, ed.zoom)
+        for item in ed.items + ([ed.live] if ed.live else []):
+            draw_item(cr, item)
+
+
+class Editor(Gtk.ApplicationWindow):
+    def __init__(self, app, cap):
+        super().__init__(application=app, title="shot")
+        self.cap = cap
+        self.items, self.live, self.tool = [], None, "pen"
+        geom = cap.monitor.get_geometry()
+        self.zoom = min(1.0, (geom.width - 80) / cap.lw, (geom.height - TOOLBAR_H - 100) / cap.lh)
+        self.set_resizable(False)
+        self.set_decorated(False)
+        self.add_css_class("shot-editor")
+
+        bar = Gtk.Box(spacing=5)
+        bar.add_css_class("shot-toolbar")
+        self.buttons = {}
+        group = None
+        for tool, glyph, name, key in TOOLS:
+            b = Gtk.ToggleButton(label=glyph, tooltip_text=f"{name} ({key.upper()})", focusable=False)
+            if group:
+                b.set_group(group)
+            group = group or b
+            b.connect("toggled", lambda btn, t=tool: btn.get_active() and self.set_tool(t))
+            self.buttons[tool] = b
+            bar.append(b)
+        spacer = Gtk.Box(hexpand=True)
+        bar.append(spacer)
+        for glyph, tip, action in (("\u21b6", "Undo (Ctrl+Z)", self.undo), ("\u29c9", "Copy (Ctrl+C)", self.copy),
+                                   ("\u2913", "Save (Ctrl+S)", self.save)):
+            b = Gtk.Button(label=glyph, tooltip_text=tip, focusable=False)
+            b.connect("clicked", lambda _b, a=action: a())
+            bar.append(b)
+        self.buttons["pen"].set_active(True)
+        handle = Gtk.WindowHandle(child=bar)  # drag the toolbar to move the window
+        # An even height keeps the shot below it on whole screen pixels at 1.5x.
+        handle.set_size_request(-1, TOOLBAR_H)
+
+        self.view = EditView(self)
+        drag = Gtk.GestureDrag(button=1)
+        drag.connect("drag-begin", self._begin)
+        drag.connect("drag-update", self._update)
+        drag.connect("drag-end", self._end)
+        self.view.add_controller(drag)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(handle)
+        box.append(self.view)
+        self.set_child(box)
+
+        keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self._key)
+        self.add_controller(keys)
+        self.connect("map", lambda *_: GLib.timeout_add(40, self._place))
+
+    def _place(self):
+        """Over the spot the shot came from, when it fits at 1:1."""
+        if self.zoom == 1:
+            geom = self.cap.monitor.get_geometry()
+            x = min(max(round(self.cap.gx), geom.x), geom.x + geom.width - self.get_width())
+            y = min(max(round(self.cap.gy) - TOOLBAR_H, geom.y), geom.y + geom.height - self.get_height())
+            move = f'hl.dsp.window.move({{ window = "class:^({APP_ID})$", x = {x}, y = {y} }})'
+            subprocess.run(["hyprctl", "dispatch", move], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        return False
+
+    # -- tools
+    def set_tool(self, tool):
+        self._commit_text()
+        self.tool = tool
+        if not self.buttons[tool].get_active():
+            self.buttons[tool].set_active(True)
+
+    def _point(self, x, y):
+        cap = self.cap
+        return (min(max(x / self.zoom, 0.0), cap.lw), min(max(y / self.zoom, 0.0), cap.lh))
+
+    def _begin(self, gesture, x, y):
+        self._commit_text()
+        p = self._point(x, y)
+        if self.tool == "text":
+            self.live = {"kind": "text", "at": p, "text": "", "editing": True}
+        elif self.tool == "pen":
+            self.live = {"kind": "pen", "points": [p]}
+        elif self.tool == "pixelate":
+            self.live = {"kind": "pixelate", "start": p, "rect": (p[0], p[1], 0, 0)}
+        else:
+            self.live = {"kind": self.tool, "a": p, "b": p}
+        self.view.queue_draw()
+
+    def _update(self, gesture, dx, dy):
+        live = self.live
+        if not live or live["kind"] == "text":
+            return
+        ok, sx, sy = gesture.get_start_point()
+        p = self._point(sx + dx, sy + dy)
+        if live["kind"] == "pen":
+            live["points"].append(p)
+        elif live["kind"] == "pixelate":
+            (ax, ay) = live["start"]
+            live["rect"] = (min(ax, p[0]), min(ay, p[1]), abs(p[0] - ax), abs(p[1] - ay))
+        else:
+            live["b"] = p
+        self.view.queue_draw()
+
+    def _end(self, gesture, dx, dy):
+        live = self.live
+        if not live or live["kind"] == "text":
+            return
+        self._update(gesture, dx, dy)  # the release point is the final geometry
+        self.live = None
+        if live["kind"] == "pen":
+            xs, ys = [p[0] for p in live["points"]], [p[1] for p in live["points"]]
+            tiny = max(xs) - min(xs) < 3 and max(ys) - min(ys) < 3
+        elif live["kind"] == "pixelate":
+            tiny = live["rect"][2] < 3 or live["rect"][3] < 3
+        else:
+            tiny = abs(live["b"][0] - live["a"][0]) < 3 and abs(live["b"][1] - live["a"][1]) < 3
+        if not tiny:
+            if live["kind"] == "pixelate":
+                live["small"] = self._mosaic(live["rect"])
+            self.items.append(live)
+        self.view.queue_draw()
+
+    def _mosaic(self, r):
+        """The shot's pixels under r, averaged down to one cell per block."""
+        s = self.cap.scale
+        x, y, w, h = (v * s for v in r)
+        block = max(6, int(8 * s))
+        sw, sh = max(1, math.ceil(w / block)), max(1, math.ceil(h / block))
+        small = cairo.ImageSurface(cairo.FORMAT_ARGB32, sw, sh)
+        c = cairo.Context(small)
+        c.scale(sw / w, sh / h)
+        c.set_source_surface(self.cap.surface, -x, -y)
+        c.get_source().set_filter(cairo.FILTER_GOOD)
+        c.paint()
+        return small
+
+    def _commit_text(self):
+        live = self.live
+        if live and live["kind"] == "text":
+            self.live = None
+            if live["text"].strip():
+                live["editing"] = False
+                self.items.append(live)
+            self.view.queue_draw()
+
+    def _key(self, controller, keyval, keycode, state):
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        live = self.live
+        if live and live["kind"] == "text":
+            if ctrl:
+                self._commit_text()  # Ctrl+C while typing: keep the label, then copy
+            elif keyval == Gdk.KEY_Escape:
+                live["text"] = ""
+                self._commit_text()
+                return True
+            elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                self._commit_text()
+                return True
+            elif keyval == Gdk.KEY_BackSpace:
+                live["text"] = live["text"][:-1]
+                self.view.queue_draw()
+                return True
+            else:
+                ch = chr(Gdk.keyval_to_unicode(keyval) or 0)
+                if ch.isprintable() and ch:
+                    live["text"] += ch
+                    self.view.queue_draw()
+                return True
+        lower = Gdk.keyval_to_lower(keyval)
+        if ctrl:
+            action = {Gdk.KEY_c: self.copy, Gdk.KEY_s: self.save, Gdk.KEY_z: self.undo, Gdk.KEY_w: self.close}.get(lower)
+            if action:
+                action()
+                return True
+            return False
+        if keyval == Gdk.KEY_Escape:
+            self.close()
+            return True
+        for tool, _, _, key in TOOLS:
+            if lower == Gdk.keyval_from_name(key):
+                self.set_tool(tool)
+                return True
+        return False
+
+    # -- actions
+    def undo(self):
+        self._commit_text()
+        if self.items:
+            self.items.pop()
+            self.view.queue_draw()
+
+    def flattened(self):
+        """The shot and its annotations as PNG bytes, at the shot's own pixel density."""
+        self._commit_text()
+        cap = self.cap
+        out = cairo.ImageSurface(cairo.FORMAT_ARGB32, cap.pw, cap.ph)
+        cr = cairo.Context(out)
+        cr.set_source_surface(cap.surface, 0, 0)
+        cr.paint()
+        cr.scale(cap.scale, cap.scale)
+        for item in self.items:
+            draw_item(cr, item)
+        buf = io.BytesIO()
+        out.write_to_png(buf)
+        return buf.getvalue()
+
+    def copy(self):
+        png = self.flattened()
+        wl_copy(png, "image/png")
+        log(f"editor: copied annotated {self.cap.pw}x{self.cap.ph}")
+        self.close()
+
+    def save(self):
+        path = unique_png(os.path.expanduser(SAVE_DIR) if SAVE_DIR else pictures_dir())
+        with open(path, "wb") as f:
+            f.write(self.flattened())
+        log(f"editor: saved {path}")
+        self.close()
+
+
+# --- The daemon ------------------------------------------------------------------------
+
+CSS = b"""
+window.shot-editor { background: #1c1c1e; }
+.shot-toolbar { background: #29292b; padding: 5px 8px; min-height: 28px; }
+.shot-toolbar button { min-height: 26px; min-width: 30px; padding: 0 6px; border-radius: 6px; border: none;
+  box-shadow: none; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); font-size: 15px; }
+.shot-toolbar button:hover { background: rgba(255,255,255,0.16); }
+.shot-toolbar button:checked { background: rgba(255,59,48,0.85); color: white; }
+"""
+
+
+class Shot(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID)
+        self.overlay = None
+        self.editor = None
+        self.last = None
+        self.mode = None
+        self.t0 = 0.0
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        self.hold()
+        css = Gtk.CssProvider()
+        css.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        if not os.path.exists(FIFO):
+            os.mkfifo(FIFO, 0o600)
+        # Read-write, so the FIFO never reports EOF between writers.
+        self.fifo = os.open(FIFO, os.O_RDWR | os.O_NONBLOCK)
+        try:
+            from gi.repository import GLibUnix
+            GLibUnix.fd_add_full(GLib.PRIORITY_DEFAULT, self.fifo, GLib.IOCondition.IN, self._on_fifo)
+        except ImportError:
+            GLib.unix_fd_add_full(GLib.PRIORITY_DEFAULT, self.fifo, GLib.IOCondition.IN, self._on_fifo)
+        log(f"listening on {FIFO}")
+
+    def do_activate(self):
+        pass
+
+    def _on_fifo(self, fd, condition):
+        try:
+            data = os.read(fd, 4096).decode(errors="replace")
+        except BlockingIOError:
+            return True
+        for line in data.splitlines():
+            parts = line.split()
+            if parts and parts[0] in ("copy", "ocr", "edit"):
+                self.command(parts[0], parts[1] if len(parts) > 1 else "")
+        return True
+
+    def command(self, mode, monitor_name):
+        if self.overlay is not None:
+            return  # a selection is already up
+        if mode == "edit":
+            if self.editor is not None:
+                self.editor.present()
+                return
+            if self.last is not None:
+                self.open_editor(self.last)
+                return
+        elif self.editor is not None:
+            self.editor.close()
+        self.begin(mode, monitor_name)
+
+    def begin(self, mode, monitor_name):
+        self.t0 = time.perf_counter()
+        monitor = monitor_named(monitor_name)
+        frame = Frame.grab(monitor) if monitor else None
+        if frame is None:
+            log("capture failed (grim)")
+            return
+        log(f"{mode}: froze {monitor.get_connector()} {frame.w}x{frame.h} in {(time.perf_counter() - self.t0) * 1e3:.0f} ms")
+        self.mode = mode
+        self.overlay = Overlay(self, frame, self.finish, self.t0)
+        self.overlay.present()
+
+    def finish(self, frame, sel):
+        self.overlay = None
+        if sel is None:
+            return
+        cap = frame.crop(*sel)
+        self.last = cap
+        if self.mode == "copy":
+            wl_copy(cap.png, "image/png")
+            msg = f"copied {cap.pw}x{cap.ph}"
+            if SAVE_DIR:
+                path = unique_png(os.path.expanduser(SAVE_DIR))
+                with open(path, "wb") as f:
+                    f.write(cap.png)
+                msg += f"; saved {path}"
+            log(msg)
+        elif self.mode == "ocr":
+            threading.Thread(target=self._ocr, args=(cap.png,), daemon=True).start()
+        else:
+            self.open_editor(cap)
+
+    def _ocr(self, png):
+        t0 = time.perf_counter()
+        out = subprocess.run(["tesseract", "stdin", "stdout", "-l", OCR_LANG], input=png,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+        lines = [line.rstrip() for line in out.stdout.decode(errors="replace").replace("\f", "").splitlines()]
+        text = "\n".join(lines).strip()
+        if text:
+            wl_copy(text.encode())
+        else:
+            subprocess.run(["notify-send", "-a", "shot", "-t", "1500", "No text found"], stderr=subprocess.DEVNULL)
+        log(f"ocr: {len(text)} chars in {(time.perf_counter() - t0) * 1e3:.0f} ms")
+
+    def open_editor(self, cap):
+        self.editor = Editor(self, cap)
+        self.editor.connect("close-request", self._editor_closed)
+        self.editor.present()
+
+    def _editor_closed(self, window):
+        if self.editor is window:
+            self.editor = None
+        return False
+
+
+if __name__ == "__main__":
+    sys.exit(Shot().run([sys.argv[0]]))

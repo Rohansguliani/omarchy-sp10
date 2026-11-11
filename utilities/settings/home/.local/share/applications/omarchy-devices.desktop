@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Devices
+GenericName=Mouse, Touchpad and Keyboard Settings
+Comment=Pointer speed, scroll speed, natural scrolling and keyboard keys for each device
+Keywords=mouse;mice;touchpad;trackpad;keyboard;pointer;cursor;tracking;speed;sensitivity;scroll;scrolling;natural;acceleration;tap;alt;super;devices;
+Icon=input-mouse
+Exec=/home/rohansguliani/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open devices
+Terminal=false
+Categories=Settings;HardwareSettings;

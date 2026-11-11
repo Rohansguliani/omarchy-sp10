@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""Input devices for the Settings window's Devices page.
+
+  devices list                 JSON: one entry per physical device (mouse,
+                               touchpad, keyboard) with its effective settings
+  devices set '<json>'         {"id": "<device id>", "settings": {...}}
+                               validates, applies live, and saves
+
+Settings are saved as hl.device rules, one line per Hyprland device name,
+between the markers in ~/.config/hypr/utilities/devices.lua. Rules for
+devices that aren't plugged in stay and apply when they return. Hyprland
+doesn't report per-device speed back, so the saved rules are the record of
+what's set; anything not set shows Hyprland's global default.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+PATH = os.path.expanduser("~/.config/hypr/utilities/devices.lua")
+BEGIN = "-- >>> devices (written by the Devices settings page) >>>"
+END = "-- <<< devices <<<"
+HEADER = """-- devices: per-device input settings (pointer speed, scrolling, keyboard
+-- options). Written by Settings > Devices (plugin rohansguliani.settings,
+-- bin/devices); only the lines between the markers are rewritten. Rules for
+-- devices that aren't plugged in stay and apply when they return.
+"""
+SWAP_ALT_SUPER = "altwin:swap_lalt_lwin"
+
+# Per kind: setting -> (hl.device key, type, min, max). Only these are accepted.
+FIELDS = {
+    "mouse": {
+        "speed": ("sensitivity", float, -1.0, 1.0),
+        "scroll": ("scroll_factor", float, 0.2, 4.0),
+        "natural_scroll": ("natural_scroll", bool, None, None),
+        "acceleration": ("accel_profile", bool, None, None),
+    },
+    "touchpad": {
+        "speed": ("sensitivity", float, -1.0, 1.0),
+        "scroll": ("scroll_factor", float, 0.1, 4.0),
+        "natural_scroll": ("natural_scroll", bool, None, None),
+        "tap_to_click": ("tap_to_click", bool, None, None),
+    },
+    "keyboard": {
+        "swap_alt_super": ("kb_options", bool, None, None),
+    },
+}
+BUS = {"0003": "USB", "0005": "Bluetooth"}
+HID_DIR = re.compile(r"^[0-9A-F]{4}:[0-9A-F]{4}:[0-9A-F]{4}\.[0-9A-F]{4}$")
+USB_INTERFACE = re.compile(r"^\d+-[\d.]+:\d+\.(\d+)$")
+HEX_ID = re.compile(r"\s*\b[0-9A-F]{4}:[0-9A-F]{4}\b", re.I)
+RULE = re.compile(r"^hl\.device\(\{\s*(.*?)\s*\}\)\s*$")
+PAIR = re.compile(r'(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|[^,\s]+)')
+
+
+def hyprctl(*args):
+    return subprocess.run(["hyprctl", *args], capture_output=True, text=True, timeout=5).stdout
+
+
+def option(name):
+    try:
+        return json.loads(hyprctl("getoption", name, "-j"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def read(path, default=""):
+    try:
+        with open(path) as handle:
+            return handle.read().strip()
+    except OSError:
+        return default
+
+
+def hypr_name(name):
+    return name.lower().replace(" ", "-")
+
+
+def udev_kinds(input_dir):
+    """ID_INPUT_* flags udev set on this input node's event device."""
+    for entry in os.listdir(input_dir):
+        if entry.startswith("event"):
+            dev = read(f"{input_dir}/{entry}/dev")
+            data = read(f"/run/udev/data/c{dev}")
+            return {m for m in re.findall(r"^E:ID_INPUT_([A-Z]+)=1$", data, re.M)}
+    return set()
+
+
+def physical_devices():
+    """Group input nodes by the physical device they belong to."""
+    groups = {}
+    for entry in sorted(os.listdir("/sys/class/input"), key=lambda e: int(re.sub(r"\D", "", e) or 0)):
+        if not entry.startswith("input"):
+            continue
+        node = f"/sys/class/input/{entry}"
+        bus, vendor, product = (read(f"{node}/id/{k}") for k in ("bustype", "vendor", "product"))
+        if bus not in ("0003", "0005", "0018", "0019") or vendor == "0000":
+            continue
+        path = os.path.realpath(f"{node}/device")
+        # Virtual devices (uinput test devices, Bluetooth media-key remotes)
+        # aren't something to configure.
+        if "/devices/virtual/" in path:
+            continue
+        parts = path.split("/")
+        interface = 0
+        while parts and (HID_DIR.match(parts[-1]) or USB_INTERFACE.match(parts[-1]) or parts[-1] == "input"):
+            match = USB_INTERFACE.match(parts[-1])
+            if match:
+                interface = int(match.group(1))
+            parts.pop()
+        location = "/".join(parts)
+        kinds = udev_kinds(node)
+        key = f"{bus}:{vendor}:{product}:{location}"
+        group = groups.setdefault(key, {
+            "bus": bus, "vendor": vendor, "product": product, "location": location,
+            "receiver": "046D:C52B" in path.upper(), "members": [],
+        })
+        group["members"].append({"name": read(f"{node}/name"), "interface": interface, "kinds": kinds})
+    return groups.values()
+
+
+def classify(group):
+    members = group["members"]
+    if any("TOUCHPAD" in m["kinds"] for m in members):
+        return "touchpad", next(m for m in members if "TOUCHPAD" in m["kinds"])
+    for member in sorted(members, key=lambda m: m["interface"]):
+        if "MOUSE" in member["kinds"]:
+            return "mouse", member
+        if "KEYBOARD" in member["kinds"]:
+            return "keyboard", member
+    return None, None
+
+
+def display_name(name):
+    name = HEX_ID.sub("", name).strip()
+    words = name.split()
+    # "Keychron Keychron C1" -> "Keychron C1"
+    if len(words) > 1 and words[0].lower() == words[1].lower():
+        words = words[1:]
+    return " ".join(words)
+
+
+def batteries():
+    """model (lowercase) -> percent, from UPower."""
+    out = {}
+    try:
+        text = subprocess.run(["upower", "--dump"], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return out
+    for block in text.split("\n\n"):
+        model = re.search(r"^\s*model:\s*(.+)$", block, re.M)
+        percent = re.search(r"^\s*percentage:\s*([\d.]+)%", block, re.M)
+        if model and percent and "line-power" not in block and "BAT" not in block:
+            out[model.group(1).strip().lower()] = round(float(percent.group(1)))
+    return out
+
+
+def load_rules():
+    """Saved rules: hyprland name -> {key: value}, in file order."""
+    rules = {}
+    try:
+        with open(PATH) as handle:
+            lines = handle.read().split("\n")
+        start, end = lines.index(BEGIN), lines.index(END)
+    except (OSError, ValueError):
+        return rules
+    for line in lines[start + 1:end]:
+        match = RULE.match(line.strip())
+        if not match:
+            continue
+        fields = {}
+        for key, raw in PAIR.findall(match.group(1)):
+            if raw.startswith('"'):
+                fields[key] = re.sub(r"\\(.)", r"\1", raw[1:-1])
+            elif raw in ("true", "false"):
+                fields[key] = raw == "true"
+            else:
+                try:
+                    fields[key] = float(raw)
+                except ValueError:
+                    continue
+        name = fields.pop("name", None)
+        if name:
+            rules[name] = fields
+    return rules
+
+
+def lua_value(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def rule_line(name, fields):
+    parts = [f"name = {lua_value(name)}"] + [f"{k} = {lua_value(v)}" for k, v in fields.items()]
+    return "hl.device({ " + ", ".join(parts) + " })"
+
+
+def save_rules(rules):
+    try:
+        with open(PATH) as handle:
+            lines = handle.read().split("\n")
+        start, end = lines.index(BEGIN), lines.index(END)
+    except (OSError, ValueError):
+        lines, start, end = HEADER.rstrip("\n").split("\n") + [BEGIN, END, ""], None, None
+        start, end = lines.index(BEGIN), lines.index(END)
+    block = [rule_line(name, fields) for name, fields in rules.items() if fields]
+    out = lines[:start + 1] + block + lines[end:]
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(PATH), prefix=".devices.lua.")
+    with os.fdopen(fd, "w") as handle:
+        handle.write("\n".join(out))
+    os.replace(tmp, PATH)
+
+
+def defaults(kind):
+    def num(name, fallback):
+        return float(option(name).get("float", fallback))
+
+    def flag(name, fallback):
+        value = option(name)
+        return bool(value.get("bool", value.get("int", fallback)))
+
+    if kind == "touchpad":
+        return {"speed": num("input:sensitivity", 0), "scroll": num("input:touchpad:scroll_factor", 1),
+                "natural_scroll": flag("input:touchpad:natural_scroll", 0),
+                "tap_to_click": flag("input:touchpad:tap-to-click", 1)}
+    if kind == "mouse":
+        return {"speed": num("input:sensitivity", 0), "scroll": num("input:scroll_factor", 1),
+                "natural_scroll": flag("input:natural_scroll", 0),
+                "acceleration": option("input:accel_profile").get("str", "") != "flat"}
+    return {"swap_alt_super": False}
+
+
+def to_setting(key, value):
+    """Saved hl.device value -> the page's setting value."""
+    if key == "accel_profile":
+        return value != "flat"
+    if key == "kb_options":
+        return SWAP_ALT_SUPER in str(value).split(",")
+    return value
+
+
+def from_setting(kind, setting, value):
+    key, kind_type, low, high = FIELDS[kind][setting]
+    if kind_type is bool:
+        if not isinstance(value, bool):
+            raise ValueError(f"{setting} must be true or false")
+        if key == "accel_profile":
+            return key, "adaptive" if value else "flat"
+        if key == "kb_options":
+            base = option("input:kb_options").get("str", "")
+            parts = [p for p in base.split(",") if p and p != SWAP_ALT_SUPER]
+            return key, (",".join(parts + [SWAP_ALT_SUPER]) if value else None)
+        return key, value
+    number = float(value)
+    if not low <= number <= high:
+        raise ValueError(f"{setting} must be between {low} and {high}")
+    return key, round(number, 2)
+
+
+def extras(device):
+    """Hardware-specific notes shown under the settings."""
+    rows = []
+    if "mx master" in device["name"].lower():
+        active = subprocess.run(["systemctl", "--user", "is-active", "mx-master.service"],
+                                capture_output=True, text=True).stdout.strip() == "active"
+        state = "" if active else " (mx-master service not running)"
+        rows += [{"title": "Gesture button", "value": "Opens Mission Control" + state},
+                 {"title": "Thumb wheel", "value": "Switches desktops" + state}]
+    if device["usb_id"] == "258a:0033":
+        rows.append({"title": "DPI button", "value": "Steps 500 / 800 / 1700 / 3200 on the mouse"})
+    return rows
+
+
+def collect():
+    devices_json = json.loads(hyprctl("devices", "-j") or "{}")
+    lists = {"pointer": [d["name"] for d in devices_json.get("mice", [])],
+             "keyboard": [d["name"] for d in devices_json.get("keyboards", [])]}
+    rules = load_rules()
+    power = batteries()
+    out = []
+    for group in physical_devices():
+        kind, primary = classify(group)
+        if not kind:
+            continue
+        bases = {hypr_name(m["name"]) for m in group["members"]}
+        pool = lists["keyboard" if kind == "keyboard" else "pointer"]
+        names = [n for n in pool if n in bases or re.sub(r"-\d+$", "", n) in bases]
+        if not names:
+            continue
+        name = display_name(primary["name"])
+        connection = ("USB receiver" if group["receiver"] else BUS.get(group["bus"], "Built-in"))
+        settings = defaults(kind)
+        # The primary node's rule (the touchpad itself, not its mouse node).
+        primary_name = hypr_name(primary["name"])
+        saved = rules.get(primary_name) or next((rules[n] for n in names if n in rules), {})
+        reverse = {v[0]: k for k, v in FIELDS[kind].items()}
+        for key, value in saved.items():
+            if key in reverse:
+                settings[reverse[key]] = to_setting(key, value)
+        battery = next((p for model, p in power.items() if model and (model in name.lower() or name.lower() in model)), None)
+        device = {
+            "id": f"{group['bus']}:{group['vendor']}:{group['product']}:{group['location']}",
+            "name": name, "kind": kind, "connection": connection, "battery": battery,
+            "usb_id": f"{group['vendor']}:{group['product']}", "hypr_names": names, "settings": settings,
+        }
+        device["extras"] = extras(device)
+        out.append(device)
+    order = {"mouse": 0, "touchpad": 1, "keyboard": 2}
+    out.sort(key=lambda d: (order[d["kind"]], d["connection"] == "Built-in", d["name"].lower()))
+    return out
+
+
+def set_settings(request):
+    device = next((d for d in collect() if d["id"] == request.get("id")), None)
+    if device is None:
+        sys.exit("device not connected")
+    kind = device["kind"]
+    changes = {}
+    for setting, value in (request.get("settings") or {}).items():
+        if setting not in FIELDS[kind]:
+            sys.exit(f"unknown {kind} setting: {setting}")
+        try:
+            changes.update([from_setting(kind, setting, value)])
+        except (TypeError, ValueError) as error:
+            sys.exit(str(error))
+    rules = load_rules()
+    applied = []
+    for name in device["hypr_names"]:
+        fields = dict(rules.get(name, {}))
+        for key, value in changes.items():
+            if value is None:
+                fields.pop(key, None)
+            else:
+                fields[key] = value
+        rules[name] = fields
+        live = dict(fields)
+        if "kb_options" in changes and changes["kb_options"] is None:
+            live["kb_options"] = option("input:kb_options").get("str", "")
+        applied.append(rule_line(name, live))
+    save_rules(rules)
+    subprocess.run(["hyprctl", "eval", "; ".join(applied)], capture_output=True, timeout=5)
+
+
+def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "list":
+        print(json.dumps(collect()))
+    elif len(sys.argv) == 3 and sys.argv[1] == "set":
+        set_settings(json.loads(sys.argv[2]))
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

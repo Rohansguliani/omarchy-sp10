@@ -12,15 +12,10 @@
 -- To disable all preinstalled app/webapp bindings, set:
 --   omarchy_preinstalled_bindings = false
 
--- Add a new binding.
-o.bind("ALT + 1", "Area screenshot to clipboard", "omarchy-capture-screenshot region copy")
+-- Add a new binding. (Alt+1 / Alt+2 / Alt+` screenshots: utilities/shot.lua.)
 o.bind("CTRL + ALT + S", "Suspend", "systemctl suspend")
-hl.unbind("switch:on:Lid Switch")
-hl.unbind("switch:off:Lid Switch")
-o.bind("switch:on:Lid Switch", nil, "~/.local/bin/omarchy-lid-power-policy close", { locked = true })
-o.bind("switch:off:Lid Switch", nil, "~/.local/bin/omarchy-lid-power-policy open", { locked = true })
-o.bind("CTRL + RIGHT", "Next workspace", hl.dsp.focus({ workspace = "e+1" }))
-o.bind("CTRL + LEFT", "Previous workspace", hl.dsp.focus({ workspace = "e-1" }))
+
+-- Super+Ctrl+A/B/N open Settings pages: utilities/settings.lua.
 -- o.bind("SUPER + SHIFT + R", "SSH", "alacritty -e ssh your-server")
 
 -- Change an existing binding by unbinding it first, then binding the key again.
@@ -41,17 +36,6 @@ hl.unbind("CTRL + SPACE")
 o.bind("CTRL + SPACE", "Spotlight", "omarchy-shell shell toggle io.github.maajix.spotlight '{}'")
 -- <<< spotlight setup tour <<<
 
--- Ctrl+Shift+A toggles maximize on the active window (like Super+Alt+F).
-o.bind("CTRL + SHIFT + A", "Toggle maximize", hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" }))
-
--- Ctrl+Shift+1..0 moves the active window to workspace 1..10 and follows it,
--- like Super+Shift+number. Keycodes match the number row on any layout.
-for workspace = 1, 10 do
-  o.bind("CTRL + SHIFT + code:" .. tostring(workspace + 9), "Move window to workspace " .. workspace, o.workspaces.move_window(workspace))
-end
-
--- Alt+Tab window switcher (plugin io.github.pablo-merino.altswitch): hold Alt,
--- tap Tab to step through every window (most recent first), release to switch.
--- Replaces Omarchy's blind Alt+Tab cycling. pcall keeps the rest of this file
--- working if the plugin isn't installed yet (fresh machine mid-install).
-pcall(dofile, os.getenv("HOME") .. "/.config/omarchy/plugins/io.github.pablo-merino.altswitch/altswitch.lua")
+-- Everything else (window tools, Displays, lid, mouse, Wi-Fi/Bluetooth
+-- windows) is a utility in ~/omarchy-sp10/utilities/ with its own
+-- ~/.config/hypr/utilities/<name>.lua, loaded by hyprland.lua.

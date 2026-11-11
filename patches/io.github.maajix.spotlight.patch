@@ -1,0 +1,136 @@
+diff --git a/Spotlight.qml b/Spotlight.qml
+index 0907bd6..6d4fdc0 100644
+--- a/Spotlight.qml
++++ b/Spotlight.qml
+@@ -384,7 +384,10 @@ Item {
+   // Frosted glass needs something left to frost: at 0.86 the card is opaque
+   // and Hyprland's blur has no visible effect. 0.62 keeps text contrast while
+   // letting the blurred wallpaper through as colour and shape.
+-  readonly property color glassBackground: Util.alpha(Commons.Color.menu.background, 0.62)
++  // Local change (rohansguliani): opaque. This machine runs with Hyprland blur
++  // off, so a translucent card just shows the windows behind it unblurred.
++  // Upstream: Util.alpha(Commons.Color.menu.background, 0.62).
++  readonly property color glassBackground: Commons.Color.menu.background
+   readonly property color glassBorder: Util.alpha(Commons.Color.foreground, 0.09)
+   readonly property color glassSheen: Util.alpha("#ffffff", 0.07)
+   readonly property color scrim: Util.alpha(Commons.Color.menu.scrim, 0.25)
+@@ -477,6 +480,9 @@ Item {
+     root.syncView(Query.parse(root.query).filter)
+     root.updateCurrency()
+     root.rebuild()
++    // Local change (rohansguliani): build the preview pane now rather than on
++    // the next event-loop turn, so it is in the first frame with the rows.
++    root.updatePreview()
+     if (resumeAi) {
+       aiPanel.restoringScroll = true
+       root.aiActive = true
+@@ -2305,8 +2311,11 @@ Item {
+   property var previewData: null
+   property bool previewQueued: false
+   property var previewProcess: null
++  // Local change (rohansguliani): judge the width by the panel's screen. A
++  // freshly mapped panel still reports its 500 px default until the compositor
++  // sizes it, which hid the preview for the first frame. Upstream: panel.width.
+   readonly property bool previewShown: panel.visible && root.settings.previewPane !== false
+-    && !root.aiActive && panel.width >= Style.space(960)
++    && !root.aiActive && (panel.screen ? panel.screen.width : panel.width) >= Style.space(960)
+ 
+   function schedulePreview() {
+     if (root.previewQueued) return
+@@ -3380,7 +3389,9 @@ Item {
+               fillMode: Image.PreserveAspectFit
+               sourceSize.width: width * Screen.devicePixelRatio
+               sourceSize.height: height * Screen.devicePixelRatio
+-              asynchronous: true
++              // Local change (rohansguliani): load with the row, so icons are
++              // in the first frame instead of popping in. Upstream: true.
++              asynchronous: false
+               anchors.left: rowSurface.left
+               anchors.leftMargin: root.rowInset
+               anchors.verticalCenter: rowSurface.verticalCenter
+diff --git a/lib/Views.js b/lib/Views.js
+index 6f9104f..dd33e84 100644
+--- a/lib/Views.js
++++ b/lib/Views.js
+@@ -136,8 +136,8 @@ var SPECS = {
+ 
+   wifi: {
+     noun: "Wi-Fi networks",
+-    manage: { title: "Manage Wi-Fi…", empty: "No Wi-Fi networks · open Network panel",
+-              argv: ["omarchy-shell", "omarchy.network", "show"] },
++    manage: { title: "Manage Wi-Fi…", empty: "No Wi-Fi networks · open Wi-Fi window",
++              argv: ["omarchy-wifi-window"] },
+     candidate: function(n) { return { title: n.ssid, subtitle: n.security } },
+     row: function(n) {
+       return { key: "wifi:" + n.ssid, title: n.ssid,
+@@ -148,18 +148,19 @@ var SPECS = {
+                payload: { ssid: n.ssid, connected: n.connected, signal: n.signal,
+                           security: n.security } }
+     },
+-    // nmcli would read an SSID that starts with "-" as an option.
++    // nmcli would read an SSID that starts with "-" as an option. A network
++    // that needs a password opens the Wi-Fi window (omarchy-wifi-connect).
+     action: function(p) {
+       return p.connected || String(p.ssid).charAt(0) === "-"
+-        ? { argv: ["omarchy-shell", "omarchy.network", "show"] }
+-        : { terminal: ["nmcli", "--ask", "device", "wifi", "connect", String(p.ssid)] }
++        ? { argv: ["omarchy-wifi-window"] }
++        : { argv: ["omarchy-wifi-connect", String(p.ssid)] }
+     }
+   },
+ 
+   bluetooth: {
+     noun: "Bluetooth devices",
+-    manage: { title: "Pair another device…", empty: "No paired devices · open Bluetooth panel",
+-              argv: ["omarchy-shell", "omarchy.bluetooth", "show"] },
++    manage: { title: "Pair another device…", empty: "No paired devices · open Bluetooth window",
++              argv: ["omarchy-bluetooth-window"] },
+     candidate: function(d) { return { title: d.name, subtitle: d.address } },
+     row: function(d) {
+       return { key: "bluetooth:" + d.address, title: d.name,
+diff --git a/tests/views.test.js b/tests/views.test.js
+index 328a23c..064cedb 100644
+--- a/tests/views.test.js
++++ b/tests/views.test.js
+@@ -90,7 +90,7 @@ test("Bluetooth disconnects need confirmation; connecting does not", () => {
+   assert.equal(connected.section, "Paired Bluetooth devices")
+ })
+ 
+-test("Wi-Fi keeps option-like SSIDs away from nmcli and manages from the panel", () => {
++test("Wi-Fi keeps option-like SSIDs away from nmcli and manages from the Wi-Fi window", () => {
+   const networks = [
+     { ssid: "Home", connected: false, signal: 80, security: "WPA2" },
+     { ssid: "-oops", connected: false, signal: 40, security: "" }
+@@ -98,14 +98,14 @@ test("Wi-Fi keeps option-like SSIDs away from nmcli and manages from the panel",
+   const list = rows("wifi", ready(networks))
+   assert.deepEqual(list.map(r => r.key), ["wifi:Home", "wifi:-oops", "wifi.manage"])
+   assert.deepEqual(Views.action("wifi", list[0].payload, false),
+-    { terminal: ["nmcli", "--ask", "device", "wifi", "connect", "Home"] })
++    { argv: ["omarchy-wifi-connect", "Home"] })
+   assert.deepEqual(Views.action("wifi", list[1].payload, false),
+-    { argv: ["omarchy-shell", "omarchy.network", "show"] })
++    { argv: ["omarchy-wifi-window"] })
+   assert.equal(list[1].primaryLabel, "Manage network")
+   assert.equal(list[2].title, "Manage Wi-Fi…")
+   assert.deepEqual(rows("wifi", ready(networks), "home").map(r => r.key), ["wifi:Home"])
+   assert.deepEqual(rows("wifi", ready([])).map(r => [r.kind, r.title]),
+-    [["shell", "No Wi-Fi networks · open Network panel"]])
++    [["shell", "No Wi-Fi networks · open Wi-Fi window"]])
+ })
+ 
+ test("audio lists outputs before inputs under a query and leaves the default alone", () => {
+diff --git a/ui/panels/PreviewPane.qml b/ui/panels/PreviewPane.qml
+index e4e9ea0..cb69758 100644
+--- a/ui/panels/PreviewPane.qml
++++ b/ui/panels/PreviewPane.qml
+@@ -257,7 +257,9 @@ Item {
+         source: String(parent.block.source || "")
+         fillMode: Image.PreserveAspectFit
+         horizontalAlignment: Image.AlignLeft
+-        asynchronous: true
++        // Local change (rohansguliani): app icons load with the pane so they
++        // don't pop in; other images (files, screenshots) stay async.
++        asynchronous: !parent.icon
+         // Decoding is bounded by the pane, not by the file.
+         sourceSize.width: Math.round(pane.width * Screen.devicePixelRatio)
+         sourceSize.height: Math.round(Style.space(220) * Screen.devicePixelRatio)

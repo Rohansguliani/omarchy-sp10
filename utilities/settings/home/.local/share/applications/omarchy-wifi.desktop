@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Wi-Fi
+GenericName=Network Settings
+Comment=Connect to Wi-Fi networks and edit connections
+Keywords=wifi;wi-fi;wlan;wireless;network;internet;ethernet;
+Icon=network-wireless
+Exec=omarchy-wifi-window
+Terminal=false
+Categories=Settings;Network;

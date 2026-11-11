@@ -12,10 +12,16 @@
       ],
       "right": [
         {
+          "id": "rohansguliani.sound"
+        },
+        {
           "format": "M/d h:mm AP",
           "formatAlt": "d MMMM 'W'ww yyyy",
           "id": "omarchy.clock",
           "verticalFormat": "HH\n—\nmm"
+        },
+        {
+          "id": "omarchy.power"
         }
       ],
       "centerBegin": [],
@@ -40,10 +46,13 @@
       "id": "io.github.maajix.spotlight"
     },
     {
-      "id": "mirador"
+      "id": "rohansguliani.windows"
     },
     {
-      "id": "io.github.pablo-merino.altswitch"
+      "id": "rohansguliani.settings"
+    },
+    {
+      "id": "rohansguliani.sound"
     }
   ],
   "version": 1,

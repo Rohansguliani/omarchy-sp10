@@ -328,7 +328,55 @@ Item {
     if (activePopout === owner) activePopout = null
   }
 
-  onActivePopoutChanged: syncAutoHide()
+  // A popout closing (clicking its widget again, or outside it) used to hide
+  // the bar at once even with the pointer still on it: while the popout held
+  // Hyprland's focus grab the bar's hover state went stale, and Wayland sends
+  // no fresh enter until the pointer moves. So on release, ask Hyprland where
+  // the pointer really is before hiding.
+  onActivePopoutChanged: {
+    if (activePopout) syncAutoHide()
+    else if (autoHide && autoHideRevealed && !manualBarHidden) cursorProbe.running = true
+  }
+
+  Process {
+    id: cursorProbe
+    command: ["hyprctl", "cursorpos", "-j"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var point = null
+        try { point = JSON.parse(text) } catch (error) {}
+        // On the bar: stay revealed. Until the bar's own hover catches up
+        // (the next pointer move over it), keep checking, so a pointer that
+        // leaves before that still hides the bar.
+        if (point && root.pointOnBar(point.x, point.y)) {
+          if (!root.barHovered) cursorRecheck.restart()
+        } else {
+          root.syncAutoHide()
+        }
+      }
+    }
+  }
+
+  Timer {
+    id: cursorRecheck
+    interval: 400
+    onTriggered: if (!root.barHovered && !root.activePopout) cursorProbe.running = true
+  }
+
+  // Whether a point in Hyprland's layout coordinates is on the bar's strip of
+  // any screen.
+  function pointOnBar(x, y) {
+    var screens = Quickshell.screens
+    for (var i = 0; i < screens.length; i++) {
+      var s = screens[i]
+      if (x < s.x || x >= s.x + s.width || y < s.y || y >= s.y + s.height) continue
+      if (position === "bottom") return y >= s.y + s.height - barSize
+      if (position === "top") return y < s.y + barSize
+      if (position === "left") return x < s.x + barSize
+      return x >= s.x + s.width - barSize
+    }
+    return false
+  }
 
   function revealAutoHide() {
     if (!autoHide || manualBarHidden) return

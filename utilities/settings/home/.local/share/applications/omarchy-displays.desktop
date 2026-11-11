@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Displays
+GenericName=Display Settings
+Comment=Arrange monitors, set resolution, refresh rate, scale and rotation
+Keywords=monitor;monitors;screen;display;resolution;refresh;scale;rotation;arrange;arrangement;external;
+Icon=preferences-desktop-display
+Exec=/home/rohansguliani/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open displays
+Terminal=false
+Categories=Settings;HardwareSettings;

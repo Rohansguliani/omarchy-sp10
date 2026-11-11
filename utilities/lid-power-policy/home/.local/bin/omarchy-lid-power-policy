@@ -1,0 +1,88 @@
+#!/bin/bash
+# Lid policy for this Surface Pro 10. Bound to the lid switch in
+# ~/.config/hypr/utilities/lid-power-policy.lua; logind's half is in
+# /etc/systemd/logind.conf.d/lid-policy.conf.
+#
+#   Lid closed, on battery, no external display
+#       logind suspends (HandleLidSwitch=suspend). This script only locks.
+#   Lid closed, external display connected
+#       Stays awake (HandleLidSwitchDocked=ignore). Omarchy's clamshell mode
+#       turns the laptop panel off, so everything moves to the external display.
+#   Lid closed, on AC, no external display
+#       Stays awake (HandleLidSwitchExternalPower=ignore), locked, with the
+#       laptop panel off.
+#
+# logind decides only at the moment the lid closes. While it stays closed,
+# `watch` keeps the rules true as things change: pulling the power cord
+# suspends, and unplugging the monitor while on AC turns the panel back off
+# (Omarchy re-enables the panel when the last external display goes).
+#
+# Test overrides: OMARCHY_ACPI_LID_PATH and OMARCHY_DRM_PATH (read by the
+# omarchy-hw-* helpers), LID_POWER_PATH, LID_SUSPEND_CMD, LID_POLL.
+set -uo pipefail
+
+POWER_PATH=${LID_POWER_PATH:-/sys/class/power_supply}
+SUSPEND_CMD=${LID_SUSPEND_CMD:-systemctl suspend}
+POLL=${LID_POLL:-2}
+LOCK_FILE="${XDG_RUNTIME_DIR:-/run/user/$UID}/lid-power-policy.lock"
+
+internal=$(omarchy-hyprland-monitor-laptop)
+[[ -n $internal && $internal =~ ^[A-Za-z0-9._-]+$ ]] || exit 0
+
+on_ac() {
+  local supply
+  for supply in "$POWER_PATH"/*; do
+    [[ -r $supply/type && -r $supply/online ]] || continue
+    [[ $(<"$supply/type") == Battery ]] && continue
+    [[ $(<"$supply/online") == 1 ]] && return 0
+  done
+  return 1
+}
+
+# The panel's dpms state, "on", "off" or "" when it is disabled (clamshell).
+panel_state() {
+  hyprctl monitors -j | jq -r --arg name "$internal" \
+    '.[] | select(.name == $name) | if .dpmsStatus then "on" else "off" end'
+}
+
+panel() {
+  hyprctl dispatch "hl.dsp.dpms({ action = \"$1\", monitor = \"$internal\" })" >/dev/null 2>&1 || true
+}
+
+watch() {
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || exit 0
+
+  while omarchy-hw-laptop-closed; do
+    if omarchy-hw-external-monitors; then
+      : # Clamshell: Omarchy keeps the panel off while a monitor is connected.
+    elif on_ac; then
+      [[ $(panel_state) == on ]] && panel disable
+    else
+      $SUSPEND_CMD
+      exit 0
+    fi
+    sleep "$POLL"
+  done
+}
+
+case "${1:-}" in
+  close)
+    omarchy-system-lid-close
+    if omarchy-hw-external-monitors || on_ac; then
+      on_ac && ! omarchy-hw-external-monitors && panel disable
+      setsid "$0" watch </dev/null >/dev/null 2>&1 &
+    fi
+    ;;
+  open)
+    omarchy-hyprland-monitor-clamshell
+    panel enable
+    ;;
+  watch)
+    watch
+    ;;
+  *)
+    echo "Usage: ${0##*/} {close|open|watch}" >&2
+    exit 2
+    ;;
+esac

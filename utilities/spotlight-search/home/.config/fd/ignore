@@ -1,0 +1,16 @@
+# fd's global ignore file. Keeps Spotlight's file search (which runs fd over
+# ~) out of source checkouts and tool caches. Applies to fd in a terminal too,
+# but only when one of these is below the directory you search.
+/.cargo/
+/.npm/
+/.bun/
+/.rustup/
+/.mux_tmp/
+/.muxrun/
+/omarchy/
+/omarchy-pr-9485/
+/omarchy-sp10/
+/libcamera-sp10/
+/libinput-sp10/
+/surface-pro-10-camera-kernel/
+/surface-pro-10-camera-port/

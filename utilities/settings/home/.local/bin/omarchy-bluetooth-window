@@ -1,0 +1,3 @@
+#!/bin/bash
+# Bluetooth settings: the Bluetooth page of Settings (rohansguliani.settings).
+exec "$HOME/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open" bluetooth

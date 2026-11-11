@@ -1,0 +1,3 @@
+pipewire-libcamera
+snapshot
+v4l2loopback-dkms

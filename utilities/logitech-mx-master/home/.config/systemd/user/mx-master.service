@@ -1,0 +1,12 @@
+[Unit]
+Description=MX Master 2S gesture button and thumb wheel (HID++, no Solaar)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/mx-master
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

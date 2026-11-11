@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Keep Surface Smart Charging paused so the battery charges to 100%.
+
+Smart Charging is Surface embedded-controller (EC) firmware that holds the
+battery at ~80% once the device has been plugged in for long stretches. On
+Windows the Surface app's "Charge to 100%" button pauses it; Linux has no UI
+for it. This script sends the same requests through the Surface Aggregator
+Module's debug device (/dev/surface/aggregator, kernel module
+surface_aggregator_cdev):
+
+  SAM 0x01/0x01 cid 0x41  status; 0x0000 normal, 0x00c0/0x00e0 Smart Charging
+                          active, bit 0x0200 = UEFI Battery Limit (50%) mode
+  SAM 0x01/0x01 cid 0x43  pause Smart Charging (one-way; the EC re-enables it
+                          on its own later, so this runs on a timer)
+
+Reverse-engineered by linux-surface contributors:
+https://github.com/linux-surface/linux-surface/discussions/986
+Verified on a Surface Pro 10 for Business (SAM firmware 29.102.139): status
+read c0 00, after pausing 00 00, and the battery went from "not charging" at
+79% to charging at ~22 W.
+
+Usage: surface-smart-charging [status|pause]   (default: pause if active)
+"""
+
+import ctypes
+import fcntl
+import os
+import sys
+
+DEVICE = "/dev/surface/aggregator"
+SMART_CHARGING_BITS = 0x00C0
+BATTERY_LIMIT_BIT = 0x0200
+
+
+class Buffer(ctypes.Structure):
+    _layout_ = "ms"  # with _pack_ = 1 every layout is identical; set to silence 3.14's warning
+    _pack_ = 1
+    _fields_ = [("data", ctypes.c_uint64), ("length", ctypes.c_uint16), ("pad", ctypes.c_uint8 * 6)]
+
+
+class Request(ctypes.Structure):
+    _layout_ = "ms"
+    _pack_ = 1
+    _fields_ = [
+        ("target_category", ctypes.c_uint8),
+        ("target_id", ctypes.c_uint8),
+        ("command_id", ctypes.c_uint8),
+        ("instance_id", ctypes.c_uint8),
+        ("flags", ctypes.c_uint16),
+        ("status", ctypes.c_int16),
+        ("payload", Buffer),
+        ("response", Buffer),
+    ]
+
+
+# _IOWR(0xA5, 1, sizeof(Request))
+IOCTL_REQUEST = (3 << 30) | (ctypes.sizeof(Request) << 16) | (0xA5 << 8) | 1
+HAS_RESPONSE = 1
+
+
+def request(fd, command_id):
+    response = (ctypes.c_uint8 * 64)()
+    raw = Request(0x01, 0x01, command_id, 0x00, HAS_RESPONSE, 0)
+    raw.response.data = ctypes.addressof(response)
+    raw.response.length = len(response)
+    buf = bytearray(raw)
+    fcntl.ioctl(fd, IOCTL_REQUEST, buf, True)
+    raw = Request.from_buffer(buf)
+    if raw.status:
+        raise OSError(-raw.status, os.strerror(-raw.status))
+    return bytes(response[: raw.response.length])
+
+
+def main():
+    action = sys.argv[1] if len(sys.argv) > 1 else "auto"
+    if action not in ("auto", "status", "pause"):
+        sys.exit(__doc__)
+    fd = os.open(DEVICE, os.O_RDWR)
+    try:
+        status = int.from_bytes(request(fd, 0x41)[:2], "little")
+        active = bool(status & SMART_CHARGING_BITS)
+        print(f"status 0x{status:04x}: smart charging {'active' if active else 'off'}"
+              + (", UEFI battery limit on" if status & BATTERY_LIMIT_BIT else ""))
+        if action == "status":
+            return
+        if status & BATTERY_LIMIT_BIT:
+            print("UEFI Battery Limit (50%) is on; turn it off in Surface UEFI. Not touching it.")
+            return
+        if active or action == "pause":
+            result = request(fd, 0x43)
+            after = int.from_bytes(request(fd, 0x41)[:2], "little")
+            print(f"paused (reply {result.hex(' ')}); status now 0x{after:04x}")
+    finally:
+        os.close(fd)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Open Settings, optionally on a page: wifi, bluetooth, sound, displays, devices, battery, about.
+page=${1:-}
+case "$page" in
+  "" | wifi | bluetooth | sound | displays | devices | battery | about) ;;
+  *) echo "usage: settings-open [wifi|bluetooth|sound|displays|devices|battery|about]" >&2; exit 2 ;;
+esac
+exec omarchy-shell shell summon rohansguliani.settings "{\"page\":\"$page\"}"

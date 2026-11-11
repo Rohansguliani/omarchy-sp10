@@ -6,7 +6,12 @@ hl.config({
   general = {
     gaps_in = 2,
     border_size = 1,
-    resize_on_border = true,
+    -- Off: Hyprland resizes floating windows from the nearest corner, so a
+    -- side drag also changed the height. Border drags are handled by
+    -- rohansguliani.windows/window-actions/edge-resize.lua instead (sides
+    -- change one axis, a neighbour on the dragged side follows). Tiled
+    -- windows: Super+right-drag.
+    resize_on_border = false,
     col = {
       active_border = "#333333",
       inactive_border = "#1f1f1f",
@@ -67,3 +72,8 @@ hl.config({
 -- Find its class with: hyprctl clients
 -- o.transparent_window("my-app")
 -- o.transparent_window("my-app", "0.9 0.85") -- Custom active/inactive opacity.
+
+-- Windows open and close in place: no popin (Omarchy scales them in from 87%,
+-- which reads as the window moving). The quick fade stays.
+hl.animation({ leaf = "windowsIn", enabled = false })
+hl.animation({ leaf = "windowsOut", enabled = false })

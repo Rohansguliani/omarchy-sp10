@@ -1,0 +1,11 @@
+[Unit]
+Description=Suspend after 10 minutes locked on battery
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/omarchy-battery-idle-suspend
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

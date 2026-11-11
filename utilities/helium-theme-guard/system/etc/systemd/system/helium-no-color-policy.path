@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep Omarchy's browser color policy away from Helium
+
+[Path]
+# Omarchy writes this on theme changes and browser installs. Helium reads
+# /etc/chromium/policies, and a color policy overrides its own theme.
+PathExists=/etc/chromium/policies/managed/color.json
+PathChanged=/etc/chromium/policies/managed/color.json
+
+[Install]
+WantedBy=multi-user.target

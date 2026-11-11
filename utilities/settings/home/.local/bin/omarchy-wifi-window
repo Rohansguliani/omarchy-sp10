@@ -1,0 +1,3 @@
+#!/bin/bash
+# Wi-Fi settings: the Wi-Fi page of Settings (rohansguliani.settings).
+exec "$HOME/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open" wifi

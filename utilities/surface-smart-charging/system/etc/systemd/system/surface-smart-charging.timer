@@ -1,0 +1,9 @@
+[Unit]
+Description=Re-pause Surface Smart Charging (the firmware turns it back on)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=30min
+
+[Install]
+WantedBy=timers.target

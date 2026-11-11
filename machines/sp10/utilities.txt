@@ -1,0 +1,26 @@
+# Utilities this machine gets, one per line (names in ../../utilities/).
+
+# Hardware: this model only
+surface-sp10-hardware
+surface-sp10-camera
+surface-gpu-power-limit
+
+# Laptop
+lid-power-policy
+battery-idle-suspend
+touchpad-three-finger-drag
+
+# Peripherals used with this machine
+logitech-mx-master
+displaylink
+kef-lsx-speaker
+
+# Any machine
+window-tools
+settings
+shot
+spotlight-search
+bluetooth-audio-switch
+helium-theme-guard
+lean-services
+surface-smart-charging

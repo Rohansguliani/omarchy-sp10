@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "rohansguliani.settings",
+  "name": "Settings",
+  "version": "1.0.0",
+  "author": "rohansguliani",
+  "license": "MIT",
+  "description": "macOS-style Settings window: Wi-Fi, Bluetooth, Sound, Displays, Battery and About.",
+  "kinds": [
+    "panel"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Settings.qml"
+  }
+}

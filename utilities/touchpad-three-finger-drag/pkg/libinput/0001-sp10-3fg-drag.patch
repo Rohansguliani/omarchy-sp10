@@ -1,0 +1,82 @@
+diff --git i/src/evdev-mt-touchpad-gestures.c w/src/evdev-mt-touchpad-gestures.c
+index ae42b513..0e10a79d 100644
+--- i/src/evdev-mt-touchpad-gestures.c
++++ w/src/evdev-mt-touchpad-gestures.c
+@@ -38,7 +38,8 @@ enum gesture_cancelled {
+ #define DEFAULT_GESTURE_SWITCH_TIMEOUT usec_from_millis(100)
+ #define DEFAULT_GESTURE_SWIPE_TIMEOUT usec_from_millis(150)
+ #define DEFAULT_GESTURE_PINCH_TIMEOUT usec_from_millis(300)
+-#define DRAG_3FG_OR_SWIPE_TIMEOUT usec_from_millis(80)
++/* sp10: start 3fg drag immediately instead of buffering 80ms as a swipe */
++#define DRAG_3FG_OR_SWIPE_TIMEOUT usec_from_millis(0)
+ 
+ #define HOLD_AND_MOTION_THRESHOLD 0.5 /* mm */
+ #define PINCH_DISAMBIGUATION_MOVE_THRESHOLD 1.5 /* mm */
+@@ -1095,7 +1096,9 @@ tp_gesture_handle_event_on_state_3fg_drag_or_swipe(struct tp_dispatch *tp,
+ 		second_moved = tp_gesture_mm_moved(tp, second);
+ 		first_mm = hypot(first_moved.x, first_moved.y);
+ 		second_mm = hypot(second_moved.x, second_moved.y);
+-		if ((first_mm + second_mm) / 2.0 >= DRAG_3FG_OR_SWIPE_MOVE_THRESHOLD) {
++		/* sp10: a fast 3fg move is still a drag; 3fg swipes are unused */
++		if (false &&
++		    (first_mm + second_mm) / 2.0 >= DRAG_3FG_OR_SWIPE_MOVE_THRESHOLD) {
+ 			tp->gesture.state = GESTURE_STATE_SWIPE;
+ 		} else {
+ 			/* Cancel the swipe */
+@@ -1140,7 +1143,26 @@ static void
+ tp_gesture_set_3fg_drag_timer(struct tp_dispatch *tp, usec_t time)
+ {
+ 	tp->gesture.drag_3fg_release_time = time;
+-	libinput_timer_set(&tp->gesture.drag_3fg_timer, usec_add_millis(time, 700));
++	/* sp10: drop the drag 300ms after lift (upstream 700ms) */
++	libinput_timer_set(&tp->gesture.drag_3fg_timer, usec_add_millis(time, 300));
++}
++
++/* sp10: fingers lifted at the touchpad edge are repositioning to keep
++ * dragging, like tapping's auto drag-lock; anywhere else they are
++ * dropping. Same 5mm edge margins as tapping. */
++static bool
++tp_gesture_3fg_lift_near_edge(struct tp_dispatch *tp)
++{
++	struct tp_touch *t;
++
++	tp_for_each_touch(tp, t) {
++		if (t->state == TOUCH_NONE || t->state == TOUCH_HOVERING)
++			continue;
++		if (t->point.x < tp->tap.edges.left || t->point.x > tp->tap.edges.right ||
++		    t->point.y < tp->tap.edges.top || t->point.y > tp->tap.edges.bottom)
++			return true;
++	}
++	return false;
+ }
+ 
+ static void
+@@ -1161,6 +1183,17 @@ tp_gesture_handle_event_on_state_3fg_drag(struct tp_dispatch *tp,
+ 		tp->gesture.state = GESTURE_STATE_NONE;
+ 		break;
+ 	case GESTURE_EVENT_END:
++		/* sp10: lifting away from the edge drops at once, with
++		 * no release timeout; at the edge, keep dragging if the
++		 * fingers come back within the timeout. */
++		if (!tp_gesture_3fg_lift_near_edge(tp)) {
++			evdev_pointer_notify_button(tp->device,
++						    time,
++						    evdev_usage_from(EVDEV_BTN_LEFT),
++						    LIBINPUT_BUTTON_STATE_RELEASED);
++			tp->gesture.state = GESTURE_STATE_NONE;
++			break;
++		}
+ 		/* If the gesture ends we start the timer so we
+ 		 * can keep dragging */
+ 		tp_gesture_set_3fg_drag_timer(tp, time);
+@@ -1447,8 +1480,8 @@ tp_gesture_detect_motion_gestures(struct tp_dispatch *tp, usec_t time)
+ 
+ 	/* If 3fg dragging touches are within a 60x10mm box, start
+ 	 * dragging (or swiping) immediately */
+-	if (tp->gesture.finger_count == tp->drag_3fg.nfingers && distance_mm.x < 60.0 &&
+-	    distance_mm.y < 10.0) {
++	/* sp10: any 3fg placement drags, so uneven fingers are never a pinch */
++	if (tp->gesture.finger_count == tp->drag_3fg.nfingers) {
+ 		tp_gesture_handle_event(tp,
+ 					GESTURE_EVENT_3FG_DRAG_OR_SWIPE_START,
+ 					time);
