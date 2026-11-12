@@ -109,6 +109,10 @@ Item {
     implicitWidth: 980
     implicitHeight: 700
     minimumSize: Qt.size(760, 520)
+    // Closed by the compositor (Super+W, a window close): Quickshell drops the
+    // backing window but leaves `visible` true, so the next open() would toggle
+    // a window that no longer exists and nothing would appear.
+    onClosed: window.visible = false
 
     Item {
       anchors.fill: parent
