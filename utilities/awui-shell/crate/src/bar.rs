@@ -166,6 +166,22 @@ fn bar_button(content: Div, active: impl Fn() -> bool + 'static) -> Div {
 
 // --- Windows ------------------------------------------------------------------------------
 
+/// A window title, short: without the app's name after the last " - " ("Inbox - Helium" ->
+/// "Inbox"), and cut to 18 characters.
+fn short_title(title: &str) -> String {
+    let t = title
+        .rsplit_once(" - ")
+        .or_else(|| title.rsplit_once(" — "))
+        .map_or(title, |(head, _)| head)
+        .trim();
+    let t = if t.is_empty() { title.trim() } else { t };
+    if t.chars().count() > 18 {
+        format!("{}…", t.chars().take(17).collect::<String>().trim_end())
+    } else {
+        t.to_owned()
+    }
+}
+
 fn minimized(c: &Client) -> bool {
     c.workspace.name == "special:minimized"
 }
@@ -222,7 +238,7 @@ fn window_button(c: Client) -> Div {
     let click_address = address.clone();
     bar_button(
         div()
-            .max_w(240.0_f32)
+            .max_w(150.0_f32)
             .min_w(0.0)
             .flex_shrink(1.0_f32)
             .on_click(move |_| {
@@ -253,7 +269,7 @@ fn window_button(c: Client) -> Div {
                 None => fixed(12.0, "󰣆").flex_none().into_view(),
             })
             .child(
-                label(12.0, move || live.get().map(|c| c.title).unwrap_or_default())
+                label(11.0, move || short_title(&live.get().map(|c| c.title).unwrap_or_default()))
                     .min_w(0.0)
                     .overflow_hidden(),
             ),
