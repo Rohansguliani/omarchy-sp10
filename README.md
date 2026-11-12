@@ -75,7 +75,7 @@ settings. Any file it replaces is backed up to
 | Utility | What it does | Needs |
 |---|---|---|
 | [`lid-power-policy`](utilities/lid-power-policy) | Lid closed: sleeps on battery, keeps running with the internal screen off on power, and moves to the external monitor when one is connected. Rechecks while closed, so unplugging still does the right thing. | a laptop |
-| [`battery-idle-suspend`](utilities/battery-idle-suspend) | Sleeps after 10 minutes locked on battery. Omarchy otherwise only locks and turns the screen off. | a laptop |
+| [`idle-power-policy`](utilities/idle-power-policy) | Plugged in: locks and turns the display off after 1 hour idle, never sleeps. On battery: locks after 5 minutes, sleeps after 10 minutes locked. The power button locks and turns the display off right away. | a laptop |
 | [`touchpad-three-finger-drag`](utilities/touchpad-three-finger-drag) | A patched libinput that makes three-finger drag start and drop immediately, like macOS. | a touchpad |
 | [`logitech-mx-master`](utilities/logitech-mx-master) | Gesture button opens Mission Control, thumb wheel switches desktops. A small Python script talking to the mouse directly; no Solaar. | MX Master 2S on a Unifying receiver |
 | [`displaylink`](utilities/displaylink) | DisplayLink driver and placement for USB docks. | a DisplayLink dock |

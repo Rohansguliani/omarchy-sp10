@@ -186,7 +186,7 @@ Keep at least one independently bootable fallback when changing the custom camer
 
 Omarchy's idle settings (`idle` in `~/.config/omarchy/shell.json`) only lock the screen after 5 minutes and turn the display off; they never suspend. On 2026-11-04 a reboot (`omarchy-system reboot` at 02:35) left the machine at the LUKS password prompt all day, where nothing saves power, and the battery went from 100% to 12%.
 
-`~/.config/systemd/user/omarchy-battery-idle-suspend.service` (script `~/.local/bin/omarchy-battery-idle-suspend`) suspends after 10 minutes locked on battery. Plugged in, it never suspends. It cannot help at the LUKS prompt, which runs before any user service. Lid behavior is separate: see `omarchy-lid-power-policy` in `CUSTOMIZATIONS.md`.
+`~/.config/systemd/user/omarchy-idle-power-policy.service` (script `~/.local/bin/omarchy-idle-power-policy`, utility `idle-power-policy`) sets Omarchy's idle lock timeout by power source: 1 hour plugged in, 5 minutes on battery. On battery it also suspends after 10 minutes locked; plugged in it never suspends. The power button (`~/.local/bin/omarchy-power-button`) locks and turns the displays off; pressed while locked, it turns them back on. Omarchy's power menu moved to Super+Escape only. None of this can help at the LUKS prompt, which runs before any user service. Lid behavior is separate: see `omarchy-lid-power-policy` in `CUSTOMIZATIONS.md`.
 
 ## Diagnostics
 

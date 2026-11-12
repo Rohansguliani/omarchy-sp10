@@ -1,0 +1,13 @@
+#!/bin/bash
+# Power button: unlocked, one press locks and turns the displays off right
+# away. Locked, a press turns the displays back on (the lock screen turns them
+# off again after a few seconds without input).
+# Bound to XF86PowerOff by ~/.config/hypr/utilities/idle-power-policy.lua.
+set -uo pipefail
+
+if [[ $(omarchy-shell lock isLocked 2>/dev/null) == true ]]; then
+  omarchy-system-wake
+else
+  omarchy-system-lock
+  hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })' >/dev/null 2>&1 || true
+fi

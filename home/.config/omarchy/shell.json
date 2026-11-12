@@ -32,7 +32,7 @@
     "transparent": false
   },
   "idle": {
-    "lock": 300,
+    "lock": 3600,
     "screensaver": 2147483
   },
   "plugins": [

@@ -1,0 +1,72 @@
+#!/bin/bash
+# Idle behavior by power source.
+#
+#   Plugged in: lock (display off) after 1 hour idle; never suspend, so remote
+#               access keeps working.
+#   On battery: lock after 5 minutes idle; suspend after 10 minutes locked.
+#
+# Omarchy's idle service does the idle timing (it honors Stay Awake and apps
+# that block idle, like a playing video). This only sets its lock timeout,
+# `idle.lock` in shell.json, to match the power source (the shell reloads that
+# file live), and suspends on battery. Unplugging or unlocking restarts the
+# suspend count.
+# Runs as ~/.config/systemd/user/omarchy-idle-power-policy.service.
+#
+# Test overrides: IDLE_POWER_PATH, IDLE_SHELL_JSON, IDLE_SUSPEND_CMD,
+# IDLE_LOCKED_CMD, IDLE_SUSPEND_AFTER, IDLE_POLL.
+set -uo pipefail
+
+POWER_PATH=${IDLE_POWER_PATH:-/sys/class/power_supply}
+SHELL_JSON=${IDLE_SHELL_JSON:-$HOME/.config/omarchy/shell.json}
+SUSPEND_CMD=${IDLE_SUSPEND_CMD:-systemctl suspend}
+LOCKED_CMD=${IDLE_LOCKED_CMD:-omarchy-shell lock isLocked}
+SUSPEND_AFTER=${IDLE_SUSPEND_AFTER:-600}
+POLL=${IDLE_POLL:-15}
+LOCK_AC=3600
+LOCK_BATTERY=300
+
+on_ac() {
+  local supply
+  for supply in "$POWER_PATH"/*; do
+    [[ -r $supply/type && -r $supply/online ]] || continue
+    [[ $(<"$supply/type") == Battery ]] && continue
+    [[ $(<"$supply/online") == 1 ]] && return 0
+  done
+  return 1
+}
+
+# Set Omarchy's idle lock timeout, rewriting shell.json only when it differs.
+# Written in place (not renamed over) so the shell's file watcher keeps working.
+set_lock_timeout() {
+  local want=$1 have tmp
+  [[ -f $SHELL_JSON ]] || return 0
+  have=$(jq -r '.idle.lock // empty' "$SHELL_JSON" 2>/dev/null) || return 0
+  [[ $have == "$want" ]] && return 0
+  tmp=$(mktemp) || return 0
+  if jq --argjson v "$want" '.idle.lock = $v' "$SHELL_JSON" >"$tmp"; then
+    cat "$tmp" >"$SHELL_JSON"
+  fi
+  rm -f -- "$tmp"
+}
+
+since=0
+while true; do
+  if on_ac; then
+    set_lock_timeout "$LOCK_AC"
+    since=0
+  else
+    set_lock_timeout "$LOCK_BATTERY"
+    if [[ $($LOCKED_CMD 2>/dev/null) == true ]]; then
+      now=$(date +%s)
+      ((since == 0)) && since=$now
+      if ((now - since >= SUSPEND_AFTER)); then
+        $SUSPEND_CMD
+        # Count again from the wake-up, which still shows the lock screen.
+        since=0
+      fi
+    else
+      since=0
+    fi
+  fi
+  sleep "$POLL"
+done

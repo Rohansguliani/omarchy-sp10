@@ -7,7 +7,7 @@ surface-gpu-power-limit
 
 # Laptop
 lid-power-policy
-battery-idle-suspend
+idle-power-policy
 touchpad-three-finger-drag
 
 # Peripherals used with this machine

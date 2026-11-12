@@ -1,1 +1,0 @@
-user omarchy-battery-idle-suspend.service
