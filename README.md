@@ -11,16 +11,34 @@ Built and used daily on Omarchy 4.5 with Hyprland 0.56.
 ![Desktop with floating windows and the bar](docs/screenshots/desktop.png)
 
 **Mission Control** (4-finger swipe up or Ctrl+Up): every window on the
-desktop, with the desktops along the top.
+desktop, with the desktops along the top. Click a window to go to it.
 
-![Mission Control](docs/screenshots/mission-control.png)
+![Mission Control](docs/screenshots/mission-control.gif)
+
+**Alt+Tab**: live thumbnails of the current desktop's windows.
+
+![Alt+Tab](docs/screenshots/alt-tab.gif)
+
+**Snapping**: Alt+Left/Right for halves, Alt+=/− moves the shared edge of
+two snapped windows, Alt+A maximizes and restores.
+
+![Snapping](docs/screenshots/snapping.gif)
+
+**Drag to an edge**: drop a window on the left or right edge to fill that half.
+
+![Edge snap](docs/screenshots/edge-snap.gif)
+
+**Screenshots**: Alt+1 selects an area and copies it; Alt+` opens it in the
+editor (box, arrow, pen, text, pixelate).
+
+| Alt+1 | Alt+` editor |
+|---|---|
+| ![shot](docs/screenshots/shot.gif) | ![shot editor](docs/screenshots/shot-editor.gif) |
 
 **Settings**: one window for Wi-Fi, Bluetooth, Sound, Displays, Devices,
 Battery and About.
 
-| Displays | Sound | About |
-|---|---|---|
-| ![Displays](docs/screenshots/settings-displays.png) | ![Sound](docs/screenshots/settings-sound.png) | ![About](docs/screenshots/settings-about.png) |
+![Settings](docs/screenshots/settings.gif)
 
 ## Install
 
@@ -76,7 +94,9 @@ only on the hardware named; on anything else they're wrong and can be harmful.**
 | [`surface-smart-charging`](utilities/surface-smart-charging) | Keeps Surface Smart Charging paused so the battery charges to 100% instead of holding at 80%. | Surface devices |
 
 Each utility's own README explains how it works, which files it adds, and how to
-undo it.
+undo it. The utilities without a demo above have no window of their own: they
+change how the system behaves (power, audio routing, drivers) rather than what
+you see.
 
 ## Setting up a whole machine
 
