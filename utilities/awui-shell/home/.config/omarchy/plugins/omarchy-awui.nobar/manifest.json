@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy-awui.nobar",
+  "name": "No bar (omarchy-awui draws it)",
+  "version": "1.0.0",
+  "author": "rohansguliani",
+  "license": "MIT",
+  "description": "Selected as Omarchy's bar so Omarchy draws none: the bar is omarchy-awui's.",
+  "kinds": ["bar"],
+  "entryPoints": { "bar": "Bar.qml" }
+}

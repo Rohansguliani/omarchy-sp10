@@ -1,0 +1,4 @@
+#!/bin/bash
+# Opens Settings (omarchy-awui) on a page: wifi, bluetooth, sound, displays,
+# devices, battery or about.
+exec omarchy-awui msg settings ${1:-}

@@ -1,7 +1,7 @@
 {
   "bar": {
     "centerAnchor": "",
-    "id": "rohansguliani.bar",
+    "id": "omarchy-awui.nobar",
     "layout": {
       "center": [],
       "left": [
@@ -57,6 +57,9 @@
   ],
   "version": 1,
   "disabledPlugins": [
-    "omarchy.dock"
+    "marcho78.taskbar",
+    "omarchy.dock",
+    "rohansguliani.settings",
+    "rohansguliani.sound"
   ]
 }

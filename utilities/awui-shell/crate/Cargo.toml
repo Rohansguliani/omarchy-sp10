@@ -1,0 +1,13 @@
+[package]
+name = "omarchy-awui"
+version = "0.1.0"
+edition = "2024"
+description = "Omarchy shell pieces (bar, menus, Settings, Alt+Tab, Mission Control) built on AntiWebUI"
+license = "MIT"
+
+[dependencies]
+anti-webui = { git = "https://github.com/bea4dev/AntiWebUI.git", branch = "main", features = ["wayland-shell", "shell-hyprland", "shell-network", "shell-battery", "shell-power-profiles", "shell-bluetooth", "shell-audio", "shell-apps"] }
+
+[profile.release]
+lto = "thin"
+strip = "debuginfo"

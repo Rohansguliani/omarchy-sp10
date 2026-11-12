@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Save display rules into the managed block of ~/.config/hypr/monitors.lua.
+
+Usage: displays-save '<json>'
+  json: [{"output": "eDP-1" | "desc:<description>", "mode": "2880x1920@120",
+          "position": "0x0", "scale": "2", "transform": 0}, ...]
+
+Only the lines between BEGIN and END are rewritten, one hl.monitor per line
+(Omarchy's clamshell script reads the internal panel's rule line by line).
+Rules for displays not in the list, such as an unplugged monitor, are kept.
+The internal panel's scale goes through `local omarchy_monitor_scale`, which
+Omarchy's scripts read, so that line is updated too. Hyprland reloads the file
+on its own.
+"""
+
+import json
+import os
+import re
+import sys
+import tempfile
+
+PATH = os.path.expanduser("~/.config/hypr/monitors.lua")
+BEGIN = "-- >>> displays (written by the Displays settings page) >>>"
+END = "-- <<< displays <<<"
+INTERNAL = re.compile(r"^(eDP|LVDS|DSI)-")
+OUTPUT = re.compile(r'output\s*=\s*"((?:[^"\\]|\\.)*)"')
+SCALE_LOCAL = re.compile(r"^(\s*local\s+omarchy_monitor_scale\s*=\s*)[^\s-]+(.*)$")
+SAFE_MODE = re.compile(r"^\d+x\d+(@\d+(\.\d+)?)?$")
+SAFE_POSITION = re.compile(r"^-?\d+x-?\d+$")
+SAFE_SCALE = re.compile(r"^\d+(\.\d+)?$")
+
+
+def lua_string(value):
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def unescape(value):
+    return re.sub(r"\\(.)", r"\1", value)
+
+
+def rule_line(rule):
+    output = str(rule["output"])
+    mode = str(rule["mode"])
+    position = str(rule["position"])
+    scale = str(rule["scale"])
+    transform = int(rule.get("transform", 0))
+    if not (SAFE_MODE.match(mode) and SAFE_POSITION.match(position) and SAFE_SCALE.match(scale) and 0 <= transform <= 7):
+        raise ValueError(f"refusing unsafe rule: {rule!r}")
+    scale_expr = "omarchy_monitor_scale" if INTERNAL.match(output) else scale
+    parts = [
+        f"output = {lua_string(output)}",
+        f"mode = {lua_string(mode)}",
+        f"position = {lua_string(position)}",
+        f"scale = {scale_expr}",
+    ]
+    if transform:
+        parts.append(f"transform = {transform}")
+    return "hl.monitor({ " + ", ".join(parts) + " })"
+
+
+def main():
+    rules = json.loads(sys.argv[1])
+    with open(PATH) as handle:
+        lines = handle.read().split("\n")
+
+    try:
+        start = lines.index(BEGIN)
+        end = lines.index(END, start)
+    except ValueError:
+        sys.exit(f"{PATH}: managed block markers not found")
+
+    block = {}
+    for line in lines[start + 1:end]:
+        match = OUTPUT.search(line)
+        if match:
+            block[unescape(match.group(1))] = line
+
+    internal_scale = None
+    for rule in rules:
+        block[str(rule["output"])] = rule_line(rule)
+        if INTERNAL.match(str(rule["output"])):
+            internal_scale = str(rule["scale"])
+
+    out = lines[:start + 1] + list(block.values()) + lines[end:]
+    if internal_scale is not None:
+        out = [SCALE_LOCAL.sub(lambda m: m.group(1) + internal_scale + m.group(2), line) for line in out]
+
+    directory = os.path.dirname(PATH)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".monitors.lua.")
+    with os.fdopen(fd, "w") as handle:
+        handle.write("\n".join(out))
+    os.replace(tmp, PATH)
+
+
+if __name__ == "__main__":
+    main()

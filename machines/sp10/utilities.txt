@@ -24,3 +24,4 @@ bluetooth-audio-switch
 helium-theme-guard
 lean-services
 surface-smart-charging
+awui-shell
