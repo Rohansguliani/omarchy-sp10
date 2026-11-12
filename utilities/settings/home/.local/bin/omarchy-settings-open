@@ -1,0 +1,4 @@
+#!/bin/bash
+# Open Settings, optionally on a page (wifi, bluetooth, sound, displays,
+# devices, battery, about). On PATH, so launcher entries don't need a home path.
+exec "$HOME/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open" "$@"

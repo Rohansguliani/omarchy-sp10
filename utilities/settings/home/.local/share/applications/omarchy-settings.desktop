@@ -5,6 +5,6 @@ GenericName=System Settings
 Comment=Wi-Fi, Bluetooth, sound, displays, battery and about this computer
 Keywords=settings;preferences;system;control;panel;about;
 Icon=preferences-system
-Exec=/home/rohansguliani/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open
+Exec=omarchy-settings-open
 Terminal=false
 Categories=Settings;

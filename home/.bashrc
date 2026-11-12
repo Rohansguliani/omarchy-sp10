@@ -20,5 +20,5 @@ source "$OMARCHY_PATH/default/bash/rc"
 # alias p='python'
 
 # opencode
-export PATH=/home/rohansguliani/.opencode/bin:$PATH
+export PATH="$HOME/.opencode/bin:$PATH"
 export PATH="$HOME/.bun/bin:$PATH"

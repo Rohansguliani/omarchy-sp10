@@ -1,8 +1,8 @@
 # Setting up a machine (for AI agents)
 
-You are on one of Rohan's machines, running Omarchy, and asked to set it up
-from this repo. Read `README.md` first. The shared part is the same everywhere;
-your job is the part that depends on this hardware.
+You are on a machine running Omarchy, and asked to set it up from this repo.
+Read `README.md` first. The shared part is the same everywhere; your job is the
+part that depends on this hardware.
 
 ## Ground rules
 

@@ -5,6 +5,6 @@ GenericName=Sound Settings
 Comment=Output and input devices, volume, and volume per app
 Keywords=sound;audio;volume;speaker;speakers;headphones;microphone;mic;output;input;mixer;
 Icon=preferences-desktop-sound
-Exec=/home/rohansguliani/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open sound
+Exec=omarchy-settings-open sound
 Terminal=false
 Categories=Settings;

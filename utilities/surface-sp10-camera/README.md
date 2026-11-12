@@ -15,3 +15,20 @@ this on other hardware: it replaces the boot kernel and pins libcamera.
 
 Check: `cam -l` lists the internal back and front cameras. Details:
 `machines/sp10/docs/CAMERA.md`.
+
+## Building and publishing the packages
+
+`camera/kernel/` rebuilds the kernel exactly: Arch Linux `v7.0.5-arch1`, plus
+`0001-sp10-camera.patch` (the camera work) and `0002-sp10-local-followups.patch`
+(the IMX681 driver and routing changes). Both patches were checked to reproduce
+the original build tree byte for byte. `camera/libcamera/` is Arch's libcamera
+0.7.2 package plus the IMX681 sensor helper patch.
+
+The built packages are too big for git. To save the next install an hour,
+upload them as a release after each rebuild:
+
+```bash
+gh release create camera-7.0.5-sp10 --title "SP10 camera packages" \
+  linux-surface-sp10-{,headers-}7.0.5.arch1-3-x86_64.pkg.tar.zst \
+  {libcamera,libcamera-ipa,libcamera-tools,gst-plugin-libcamera}-0.7.2-5-x86_64.pkg.tar.zst
+```

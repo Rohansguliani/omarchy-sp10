@@ -5,6 +5,6 @@ GenericName=Battery Settings
 Comment=Battery charge, power mode and battery health
 Keywords=battery;power;charge;charging;power mode;performance;energy;
 Icon=battery
-Exec=/home/rohansguliani/.config/omarchy/plugins/rohansguliani.settings/bin/settings-open battery
+Exec=omarchy-settings-open battery
 Terminal=false
 Categories=Settings;
