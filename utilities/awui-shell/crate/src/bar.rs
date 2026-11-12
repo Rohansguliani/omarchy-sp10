@@ -234,7 +234,11 @@ fn window_button(c: Client) -> Div {
         let address = address.clone();
         move || hyprland::active_window().is_some_and(|w| w.address == address)
     });
-    let icon = sys::icon_for_class(&c.class);
+    // The app list loads in the background; following it gets the real icon once it's there.
+    let icon = memo({
+        let class = c.class.clone();
+        move || sys::icon_for_class(&class)
+    });
     let click_address = address.clone();
     bar_button(
         div()
@@ -264,10 +268,10 @@ fn window_button(c: Client) -> Div {
                 let gone = live.get().is_some_and(|c| minimized(&c));
                 s.opacity(if gone { 0.45_f32 } else { 1.0 })
             })
-            .child(match icon {
+            .child(dyn_view(move || match icon.get() {
                 Some(path) => img(path).object_fit(ObjectFit::Contain).size(14.0_f32).flex_none().into_view(),
                 None => fixed(12.0, "󰣆").flex_none().into_view(),
-            })
+            }))
             .child(
                 label(11.0, move || short_title(&live.get().map(|c| c.title).unwrap_or_default()))
                     .min_w(0.0)

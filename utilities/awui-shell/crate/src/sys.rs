@@ -40,6 +40,8 @@ pub fn focused_monitor() -> String {
 }
 
 /// An icon for a window's class: its desktop entry's icon, else an icon named like the class.
+/// The icon for a window's class, from its desktop entry. Reads the app list, so inside a memo
+/// it updates once the list has loaded.
 pub fn icon_for_class(class: &str) -> Option<PathBuf> {
     if class.is_empty() {
         return None;
@@ -58,7 +60,12 @@ pub fn icon_for_class(class: &str) -> Option<PathBuf> {
                 id.rsplit('.').next() == Some(lower.as_str())
             })
         });
-    app.and_then(|a| a.icon_path(64))
-        .or_else(|| icon_path(class, 64))
-        .or_else(|| icon_path(&lower, 64))
+    if let Some(path) = app.and_then(|a| a.icon_path(64)) {
+        return Some(path);
+    }
+    // Until the list has loaded, don't settle for a guess by class name.
+    if !apps().loaded() {
+        return None;
+    }
+    icon_path(class, 64).or_else(|| icon_path(&lower, 64))
 }
