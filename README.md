@@ -8,6 +8,20 @@ only what you want.
 
 Built and used daily on Omarchy 4.5 with Hyprland 0.56.
 
+![Desktop with floating windows and the bar](docs/screenshots/desktop.png)
+
+**Mission Control** (4-finger swipe up or Ctrl+Up): every window on the
+desktop, with the desktops along the top.
+
+![Mission Control](docs/screenshots/mission-control.png)
+
+**Settings**: one window for Wi-Fi, Bluetooth, Sound, Displays, Devices,
+Battery and About.
+
+| Displays | Sound | About |
+|---|---|---|
+| ![Displays](docs/screenshots/settings-displays.png) | ![Sound](docs/screenshots/settings-sound.png) | ![About](docs/screenshots/settings-about.png) |
+
 ## Install
 
 ```bash
