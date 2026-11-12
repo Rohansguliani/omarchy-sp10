@@ -17,6 +17,9 @@ Item {
   property string icon: ""
   // A faint frame, so a dark window still reads against a dark wallpaper.
   property bool outlined: false
+  // Change it to grab a fresh frame (for a thumbnail that isn't live).
+  property int refreshToken: 0
+  onRefreshTokenChanged: if (!root.live && view.captureSource) view.captureFrame()
   readonly property bool hasContent: view.hasContent
 
   readonly property var source: capturing && toplevel ? toplevel.wayland : null

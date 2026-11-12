@@ -22,9 +22,6 @@ Item {
   property bool shown: false      // on screen
   property var snap: ({ current: 1, windows: [] })
   property string dragAddress: ""
-  // A window just dropped on another desktop: hidden from the spread at once,
-  // before the fresh snapshot arrives, so it never snaps back first.
-  property string pendingAddress: ""
   property bool dragging: false
   // Desktop-card reordering: the row index being dragged (-1: none), the
   // index it would land on, and how far it has moved.
@@ -49,9 +46,14 @@ Item {
   ListModel { id: winModel }   // address, slot, wx, wy, ww, wh, order
   ListModel { id: deskModel }  // desktopId
 
-  // It waits only for the thumbnails' first frames (usually under 10 ms,
-  // measured 2026-11-04) so they never pop in from app icons; maxWait caps it.
+  // Thumbnails are kept between opens, so Mission Control shows on the same
+  // frame it is asked to, with last time's pictures, and they refresh in
+  // place. It only waits (up to maxWait) when a window has no picture yet,
+  // so it never shows an app icon first.
   readonly property int maxWait: 60
+  // Bumped on every open: thumbnails re-resolve their window (an address can
+  // be reused by a new window) and grab a fresh frame.
+  property int generation: 0
   readonly property int stripHeight: 110
   readonly property int stripTop: 24
   readonly property int gap: 18
@@ -72,14 +74,26 @@ Item {
     root.snap = data
     root.targetMonitor = data.monitor || ""
     root.dragAddress = ""
-    root.pendingAddress = ""
     root.dragging = false
     root.syncModels()
+    root.generation += 1
     root.shown = false
     root.opened = true
     root.host.lua("windowtools.overview_open = true")
-    readiness.waited = 0
-    readiness.restart()
+    if (root.thumbsReady()) {
+      root.shown = true
+    } else {
+      readiness.waited = 0
+      readiness.restart()
+    }
+  }
+
+  function thumbsReady() {
+    for (var i = 0; i < spreadRepeater.count; i++) {
+      var item = spreadRepeater.itemAt(i)
+      if (item && item.visible && !item.ready) return false
+    }
+    return true
   }
 
   // A new snapshot while open: a window moved to another desktop, or the
@@ -93,7 +107,6 @@ Item {
         instantOff.restart()
       }
       root.snap = data
-      root.pendingAddress = ""
       root.syncModels()
     }
   }
@@ -163,13 +176,10 @@ Item {
     root.opened = false
     root.dragAddress = ""
     root.dragging = false
-    root.pendingAddress = ""
     root.cancelReorder()
     root.previewDesktop = 0
     root.hoveredAddress = ""
-    // Delegates bind their toplevel once; start clean on the next open.
-    winModel.clear()
-    deskModel.clear()
+    // The models (and their thumbnails' pictures) are kept for the next open.
   }
 
   // Show once every spread thumbnail has a frame, or after maxWait.
@@ -180,12 +190,7 @@ Item {
     repeat: true
     onTriggered: {
       waited += interval
-      var ready = true
-      for (var i = 0; i < spreadRepeater.count; i++) {
-        var item = spreadRepeater.itemAt(i)
-        if (item && item.visible && !item.ready) { ready = false; break }
-      }
-      if (ready || waited >= root.maxWait) {
+      if (root.thumbsReady() || waited >= root.maxWait) {
         stop()
         root.shown = true
       }
@@ -299,13 +304,15 @@ Item {
     root.reorderDX = 0
   }
 
-  // Move a dragged window to desktop `id`. Dropping it back on its own
-  // desktop does nothing (it slides home).
+  // Move a dragged window to desktop `id` and go there with it. Dropping it
+  // back on its own desktop does nothing (it slides home). The overlay closes
+  // first: Hyprland ignores focus changes while it holds the keyboard.
   function moveTo(address, id) {
     var a = root.host.normalAddress(address)
     if (!/^0x[0-9a-f]+$/.test(a) || !(id > 0) || id === root.shownDesktop) return
-    root.pendingAddress = address
-    root.host.lua('windowtools.move_to_slot("' + a + '", ' + Math.floor(id - root.firstDesktop + 1) + ')')
+    root.dismiss()
+    focusAfterClose.expression = 'windowtools.move_to_slot_and_follow("' + a + '", ' + Math.floor(id - root.firstDesktop + 1) + ')'
+    focusAfterClose.restart()
   }
 
   // Spread layout: the column count that makes the thumbnails largest.
@@ -501,9 +508,9 @@ Item {
                 width: ww * deskCard.k
                 height: wh * deskCard.k
                 outlined: true
-                toplevel: root.host.toplevelFor(address)
+                toplevel: { root.generation; return root.host.toplevelFor(address) }
                 live: false
-                capturing: root.opened
+                refreshToken: root.generation
                 icon: root.host.appIcon(root.host.classOf(toplevel))
               }
             }
@@ -657,10 +664,7 @@ Item {
       // A window just dropped elsewhere leaves the layout at once.
       readonly property var items: {
         if (!root.opened) return []
-        var all = root.windowsOn(root.shownDesktop)
-        var out = []
-        for (var i = 0; i < all.length; i++) if (all[i].address !== root.pendingAddress) out.push(all[i])
-        return out
+        return root.windowsOn(root.shownDesktop)
       }
       readonly property var indexOf: {
         var m = ({})
@@ -772,13 +776,13 @@ Item {
               id: thumb
               width: slot.to.w
               height: slot.to.h
-              toplevel: root.host.toplevelFor(slot.address)
+              toplevel: { root.generation; return root.host.toplevelFor(slot.address) }
               outlined: true
-              // Every window keeps a frame while Mission Control is open, so
-              // one that joins the view never shows its app icon first; only
-              // the ones on view stream.
-              live: slot.visible
-              capturing: root.opened
+              // Every window keeps its last frame, even while Mission Control
+              // is closed, so nothing waits on a first capture or shows an app
+              // icon; only the ones on view stream, and only while shown.
+              live: root.shown && slot.visible
+              refreshToken: root.generation
               icon: root.host.appIcon(root.host.classOf(toplevel))
             }
 

@@ -10,7 +10,6 @@
 --
 -- Keys and gestures:
 --   Super+1..0                  go to desktop N
---   Super+Shift+1..0,
 --   Ctrl+Shift+1..0             move the active window to desktop N and follow
 --   Ctrl+Left / Ctrl+Right,
 --   four-finger swipe left/right previous / next desktop with windows
@@ -147,13 +146,14 @@ function wt.step_desktop(delta)
 end
 
 -- Keycodes match the number row on any layout (10 = "1" ... 19 = "0").
+-- Super+N switches; Ctrl+Shift+N moves the active window there and follows
+-- (it replaces Omarchy's Super+Shift+N, which is left unbound).
 for slot = 1, 10 do
   local key = "code:" .. tostring(slot + 9)
   hl.unbind("SUPER + " .. key)
   hl.unbind("SUPER + SHIFT + " .. key)
   hl.unbind("CTRL + SHIFT + " .. key)
   o.bind("SUPER + " .. key, "Switch to desktop " .. slot, function() wt.goto_desktop(slot) end)
-  o.bind("SUPER + SHIFT + " .. key, "Move window to desktop " .. slot, function() wt.move_to_desktop(slot) end)
   o.bind("CTRL + SHIFT + " .. key, "Move window to desktop " .. slot, function() wt.move_to_desktop(slot) end)
 end
 hl.unbind("CTRL + LEFT")

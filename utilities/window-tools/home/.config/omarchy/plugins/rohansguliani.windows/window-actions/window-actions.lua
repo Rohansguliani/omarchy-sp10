@@ -287,6 +287,8 @@ if not wt._window_actions_watching then
 end
 
 o.bind("CTRL + SHIFT + A", "Toggle maximize", function() wt.maximize() end)
+hl.unbind("CTRL + SHIFT + W")
+o.bind("CTRL + SHIFT + W", "Close window", hl.dsp.window.close())
 o.bind("ALT + A", "Toggle maximize", function() wt.maximize() end)
 o.bind("ALT + LEFT", "Snap window left", function() wt.snap("left") end)
 o.bind("ALT + RIGHT", "Snap window right", function() wt.snap("right") end)

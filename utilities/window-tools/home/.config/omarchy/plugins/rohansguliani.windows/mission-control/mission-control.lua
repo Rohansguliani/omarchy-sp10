@@ -62,10 +62,11 @@ function wt.overview_snapshot()
     table.concat(monitors, ","), table.concat(rows, ","))
 end
 
--- Move a window to desktop `slot` (1-10) without following it: the same slot
+-- Move a window to desktop `slot` (1-10) and go there with it: the same slot
 -- in its own monitor's block, so a window on another screen stays on that
--- screen. Called when a thumbnail is dropped on a desktop.
-function wt.move_to_slot(address, slot)
+-- screen. Called when a thumbnail is dropped on a desktop, after Mission
+-- Control has closed.
+function wt.move_to_slot_and_follow(address, slot)
   local window = wt.find_window(address)
   slot = tonumber(slot)
   local wid = window and window.workspace and tonumber(window.workspace.id)
@@ -74,7 +75,8 @@ function wt.move_to_slot(address, slot)
   end
   local target = wt.block_range(wid) + math.floor(slot) - 1
   hl.dispatch(hl.dsp.window.move({ window = "address:" .. window.address, workspace = tostring(target), follow = false }))
-  wt.shell("overviewUpdate", wt.overview_snapshot())
+  wt.goto_desktop(math.floor(slot))
+  wt.focus(window.address)
 end
 
 -- Close desktop `slot`: its windows (every monitor's when desktops span
