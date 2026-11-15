@@ -36,17 +36,22 @@ on_ac() {
 }
 
 # Set Omarchy's idle lock timeout, rewriting shell.json only when it differs.
-# Written in place (not renamed over) so the shell's file watcher keeps working.
+# Replaced atomically (temp file, then rename), as the shell saves it: the shell
+# reloads it on every change, and if it ever reads it empty it falls back to
+# Omarchy's defaults and later saves those over it.
 set_lock_timeout() {
   local want=$1 have tmp
   [[ -f $SHELL_JSON ]] || return 0
   have=$(jq -r '.idle.lock // empty' "$SHELL_JSON" 2>/dev/null) || return 0
   [[ $have == "$want" ]] && return 0
-  tmp=$(mktemp) || return 0
-  if jq --argjson v "$want" '.idle.lock = $v' "$SHELL_JSON" >"$tmp"; then
-    cat "$tmp" >"$SHELL_JSON"
+  tmp=$(mktemp "$SHELL_JSON.XXXXXX") || return 0
+  if jq --argjson v "$want" '.idle.lock = $v' "$SHELL_JSON" >"$tmp" &&
+    jq -e '.version == 1' "$tmp" >/dev/null; then
+    chmod --reference="$SHELL_JSON" -- "$tmp" 2>/dev/null
+    mv -f -- "$tmp" "$SHELL_JSON"
+  else
+    rm -f -- "$tmp"
   fi
-  rm -f -- "$tmp"
 }
 
 since=0

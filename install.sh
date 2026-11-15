@@ -82,7 +82,11 @@ place() {
   else
     note "add $dst"
   fi
-  run $sudo install -D -m "$mode" "$src" "$dst"
+  # Copy beside it, then rename over it: the file is never missing or half
+  # written, which matters for files a program reloads live (Omarchy's shell
+  # falls back to defaults if it reads shell.json empty, then saves those).
+  run $sudo install -D -m "$mode" "$src" "$dst.new.$$"
+  run $sudo mv -f "$dst.new.$$" "$dst"
 }
 
 # Each part (repo root, a utility, the machine folder) has its own home/
