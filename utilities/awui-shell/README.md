@@ -9,12 +9,13 @@ Quickshell. One program, `omarchy-awui`, runs as a user service.
 | Bar | Bottom bar that shows when the pointer touches the bottom edge: the current desktop's windows (click to focus, click the focused one to minimize), sound, battery, clock |
 | Sound menu | Volume, output device, apps playing (folded), Sound Settings… |
 | Battery menu | Charge, state, power mode, Battery Settings… |
+| Control Center | Toggle icon in the bar: Wi-Fi, Bluetooth, Do Not Disturb, Stay Awake, power mode and microphone tiles (› opens that Settings page), volume and brightness, battery health and cycles, Settings and power buttons |
 | Settings | Wi-Fi (connected, previously connected, other networks), Bluetooth (connected, previously connected, nearby), Sound, Displays, Devices, Battery, About |
 
 Colors come from the current Omarchy theme and follow theme changes.
 
 `omarchy-awui msg settings <page>` opens Settings (`omarchy-settings-open`
-wraps it); `omarchy-awui msg toggle sound|battery` opens a bar menu.
+wraps it); `omarchy-awui msg toggle sound|battery|control` opens a bar menu.
 
 Omarchy still draws the lock screen, notifications, Spotlight, Alt+Tab and
 Mission Control. Its own bar is replaced by the empty `omarchy-awui.nobar`

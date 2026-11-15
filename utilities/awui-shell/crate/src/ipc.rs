@@ -2,7 +2,7 @@
 //! `$XDG_RUNTIME_DIR`:
 //!
 //! ```text
-//! omarchy-awui msg toggle sound|battery     the bar's menus, on the focused monitor
+//! omarchy-awui msg toggle sound|battery|control    the bar's menus, on the focused monitor
 //! omarchy-awui msg status
 //! omarchy-awui msg quit
 //! ```

@@ -19,6 +19,7 @@ const EDGE: i32 = 2;
 pub enum Menu {
     Sound,
     Battery,
+    Control,
 }
 
 impl Menu {
@@ -26,6 +27,7 @@ impl Menu {
         match name {
             "sound" => Some(Self::Sound),
             "battery" => Some(Self::Battery),
+            "control" => Some(Self::Control),
             _ => None,
         }
     }
@@ -136,7 +138,8 @@ fn view(monitor: String, hovered: Signal<bool>, shown: Signal<bool>) -> Div {
                 })
                 .child(taskbar(monitor.clone()))
                 .child(sound_button(monitor.clone()))
-                .child(battery_button(monitor))
+                .child(battery_button(monitor.clone()))
+                .child(control_button(monitor))
                 .child(clock()),
         )
 }
@@ -377,6 +380,32 @@ fn battery_button_shown(monitor: String) -> Div {
                 },
             )),
         move || is_open(&monitor, Menu::Battery),
+    )
+}
+
+// --- Control Center ---------------------------------------------------------------------
+
+fn control_button(monitor: String) -> Div {
+    let anchor = node_ref();
+    let m = monitor.clone();
+    let m2 = monitor.clone();
+    bar_button(
+        div()
+            .node_ref(anchor)
+            .on_click(move |_| toggle_menu(&m, Menu::Control))
+            .child(fixed(13.0, "\u{f0521}"))
+            .child(show(
+                move || is_open(&m2, Menu::Control),
+                move || {
+                    popup()
+                        .anchor(anchor)
+                        .placement(Placement::AboveEnd)
+                        .gap(6)
+                        .on_dismiss(close_menu)
+                        .child(crate::control::menu())
+                },
+            )),
+        move || is_open(&monitor, Menu::Control),
     )
 }
 

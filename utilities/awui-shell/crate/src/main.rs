@@ -1,6 +1,7 @@
 //! omarchy-awui: Omarchy's bar, menus and window tools, built on AntiWebUI.
 
 mod bar;
+mod control;
 mod battery;
 mod ipc;
 mod settings;

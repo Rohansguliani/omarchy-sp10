@@ -8,7 +8,7 @@ mod battery;
 mod bluetooth;
 mod devices;
 mod displays;
-mod kit;
+pub mod kit;
 mod sound;
 mod wifi;
 
