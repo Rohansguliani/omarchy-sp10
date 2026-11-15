@@ -67,7 +67,6 @@ pub fn close_menu() {
 
 pub fn open(output: Output) {
     let name = output.name.clone();
-    let width = output.logical_size.width.max(1);
     let hovered = signal(false);
     // Hidden a moment after the pointer leaves, so it doesn't flicker at the edge.
     let shown = signal(false);
@@ -103,13 +102,16 @@ pub fn open(output: Output) {
         move || view(view_name.clone(), hovered, shown),
     );
     effect(move || {
+        // The strip spans any width: the compositor clips the region to the bar. The output's
+        // own width isn't used because a monitor plugged in after start reports 0 at first,
+        // which left a 1 px strip there and the bar never showed.
         layer.set_input_region(if shown.get() {
             InputRegion::Full
         } else {
             InputRegion::Rects(vec![RectI {
                 x: 0,
                 y: H - EDGE,
-                width,
+                width: i32::from(u16::MAX),
                 height: EDGE,
             }])
         });
